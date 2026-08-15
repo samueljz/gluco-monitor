@@ -15,7 +15,7 @@
       <stop offset="100%" stop-color="#00F2FE"/>
     </linearGradient>
 
-    <!-- Drop Shadow -->
+    <!-- Drop Shadow for high contrast on light/dark browser tabs -->
     <filter id="tabShadow" x="-10%" y="-10%" width="120%" height="130%">
       <feDropShadow dx="0" dy="2" stdDeviation="2.5" flood-color="#4C0519" flood-opacity="0.35"/>
     </filter>
