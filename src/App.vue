@@ -7,9 +7,9 @@ import {
   NInputNumber,
   NTimePicker,
   NModal,
-  NSwitch,
   NTabs,
   NTabPane,
+  NDropdown,
   darkTheme
 } from 'naive-ui'
 import type { GlobalThemeOverrides } from 'naive-ui'
@@ -41,10 +41,11 @@ const themeOverrides = computed<GlobalThemeOverrides>(() => ({
 }))
 
 // Types
-import { defaultSchedule, DEPENDENT_PAIRS } from './constants/schedule'
+import { defaultSchedule, SCHEDULE_RULES } from './constants/schedule'
 import type { ScheduleSlot } from './constants/schedule'
 import BloodSugarCard from './components/BloodSugarCard.vue'
 import SnackCard from './components/SnackCard.vue'
+import { syncData, isSignedIn, isSyncing, handleAuthClick, handleSignoutClick, initGoogleApi } from './services/driveSync'
 
 interface Reading {
   value: number;
@@ -108,10 +109,33 @@ function getSlotColorClass(index: number) {
 }
 
 onMounted(() => {
+  const checkInterval = setInterval(() => {
+    if (window.gapi && window.google) {
+      clearInterval(checkInterval)
+      initGoogleApi()
+    }
+  }, 100)
+
+  window.addEventListener('gdm_sync_complete', () => {
+    const savedSchedule = localStorage.getItem('gdm_schedule_v8')
+    if (savedSchedule) {
+      try {
+        const parsed = JSON.parse(savedSchedule)
+        schedule.value = parsed.map((p: any) => {
+          const def = defaultSchedule.find(d => d.id === p.id)
+          return { ...def, ...p }
+        })
+      } catch (e) {
+        console.error('Failed to parse schedule', e)
+      }
+    }
+    loadTodayReadings()
+  })
+
   const savedTheme = localStorage.getItem('gdm_theme')
   if (savedTheme === 'dark') isDarkMode.value = true
 
-  const savedSchedule = localStorage.getItem('gdm_schedule_v7')
+  const savedSchedule = localStorage.getItem('gdm_schedule_v8')
   if (savedSchedule) {
     try {
       const parsed = JSON.parse(savedSchedule)
@@ -123,7 +147,7 @@ onMounted(() => {
       console.error('Failed to parse schedule', e)
     }
   } else {
-    localStorage.setItem('gdm_schedule_v7', JSON.stringify(schedule.value))
+    localStorage.setItem('gdm_schedule_v8', JSON.stringify(schedule.value))
   }
 
   loadTodayReadings()
@@ -139,6 +163,71 @@ onMounted(() => {
 onUnmounted(() => {
   if (timer) clearInterval(timer)
 })
+
+const notificationPermission = ref('Notification' in window ? Notification.permission : 'denied')
+
+function requestNotification() {
+  if ('Notification' in window) {
+    Notification.requestPermission().then(perm => {
+      notificationPermission.value = perm
+    })
+  }
+}
+
+const notifiedSlots = ref<Set<string>>(new Set())
+
+watch(now, () => {
+  for (const slot of schedule.value) {
+    if (isSlotDue(slot)) {
+      if (!notifiedSlots.value.has(slot.id)) {
+        notifiedSlots.value.add(slot.id)
+        if ('Notification' in window && notificationPermission.value === 'granted') {
+          new Notification('Gluco Monitor', {
+            body: `It's time to log your upcoming item: ${slot.name} (${slot.time})`
+          })
+        }
+      }
+    } else {
+      notifiedSlots.value.delete(slot.id)
+    }
+  }
+})
+
+const dropdownOptions = computed(() => [
+  {
+    label: isDarkMode.value ? 'Light Mode' : 'Dark Mode',
+    key: 'theme'
+  },
+  {
+    label: notificationPermission.value === 'granted' ? 'Notifications Enabled' : 'Enable Notifications',
+    key: 'notify',
+    disabled: notificationPermission.value === 'granted' || notificationPermission.value === 'denied'
+  },
+  {
+    label: isSignedIn.value 
+      ? (isSyncing.value ? 'Syncing to Drive...' : 'Sync Now')
+      : 'Connect Google Drive',
+    key: 'sync',
+    disabled: isSyncing.value
+  },
+  ...(isSignedIn.value ? [{
+    label: 'Disconnect Drive',
+    key: 'signout'
+  }] : [])
+])
+
+function handleDropdownSelect(key: string) {
+  if (key === 'theme') {
+    toggleTheme()
+  } else if (key === 'sync') {
+    if (isSignedIn.value) syncData()
+    else handleAuthClick()
+  } else if (key === 'signout') {
+    handleSignoutClick()
+  } else if (key === 'notify') {
+    requestNotification()
+  }
+}
 
 function toggleTheme() {
   isDarkMode.value = !isDarkMode.value
@@ -167,20 +256,35 @@ function loadTodayReadings() {
 function persistReadings() {
   const dateStr = getTodayDateString()
   localStorage.setItem(`gdm_readings_${dateStr}`, JSON.stringify(todayReadings.value))
+  syncData()
 }
 
 function saveSchedule() {
-  localStorage.setItem('gdm_schedule_v7', JSON.stringify(schedule.value))
+  localStorage.setItem('gdm_schedule_v8', JSON.stringify(schedule.value))
+  syncData()
 }
 
-function enforceScheduleConstraints() {
-  const getMins = (id: string) => {
-    const s = schedule.value.find(x => x.id === id)
-    if (!s) return 0
-    const [h = 0, m = 0] = s.time.split(':').map(Number)
-    return h * 60 + m
+const getActualMins = (id: string) => {
+  const logged = todayReadings.value[id]
+  if (logged && logged.timestamp) {
+    const d = new Date(logged.timestamp)
+    return d.getHours() * 60 + d.getMinutes()
   }
+  const s = schedule.value.find(x => x.id === id)
+  if (!s) return 0
+  const [h = 0, m = 0] = s.time.split(':').map(Number)
+  return h * 60 + m
+}
+
+
+
+function updateTimeBasedOnConstraints() {
+  const getMins = getActualMins;
+  
   const setMins = (id: string, mins: number) => {
+    // If the event has already been logged, its time is fixed in history!
+    if (todayReadings.value[id]) return;
+    
     const s = schedule.value.find(x => x.id === id)
     if (s) {
       const h = Math.floor(mins / 60) % 24
@@ -189,19 +293,13 @@ function enforceScheduleConstraints() {
     }
   }
   
-  const mealsSequence = schedule.value.filter(s => s.isMeal).map(s => s.id);
-  for (let i = 0; i < mealsSequence.length - 1; i++) {
-    const m1 = mealsSequence[i]
-    const m2 = mealsSequence[i+1]
-    if (!m1 || !m2) continue
-    const current = getMins(m1)
-    const next = getMins(m2)
-    if (next < current + 120) setMins(m2, current + 120)
-  }
+  for (const rule of SCHEDULE_RULES) {
+    if (rule.requiresSourceLogged && !todayReadings.value[rule.start]) continue;
+    
+    const startMins = getMins(rule.start);
+    const endMins = getMins(rule.end);
 
-  for (const [start, end, gap] of DEPENDENT_PAIRS) {
-    const startMins = getMins(start)
-    setMins(end, startMins + gap)
+    setMins(rule.end, startMins + rule.gap);
   }
 }
 
@@ -213,10 +311,11 @@ function openEditModal(slotId: string) {
   const hasReading = !!todayReadings.value[slotId]
   
   if (hasReading) {
-    editFormTimeMs.value = timeStringToMs(slot.time)
+    // If we have a logged timestamp, use it exactly!
+    editFormTimeMs.value = todayReadings.value[slotId]?.timestamp || Date.now()
   } else {
-    // Defaults to NOW if unrecorded
-    editFormTimeMs.value = Date.now()
+    // Otherwise parse the currently displaying time string
+    editFormTimeMs.value = Date.now();
   }
   
   if (slot.requiresReading) {
@@ -225,21 +324,63 @@ function openEditModal(slotId: string) {
     editFormSnackTaken.value = hasReading
   }
   
+  editFormError.value = ''
   showEditModal.value = true
 }
+
+const editFormError = ref('')
 
 function saveEditModal() {
   if (!activeEditSlotId.value) return
   
   const slot = schedule.value.find(s => s.id === activeEditSlotId.value)
   let recordedNew = false
+  editFormError.value = ''
 
   // Save Time
   if (slot && editFormTimeMs.value !== null) {
-    slot.time = msToTimeString(editFormTimeMs.value)
-    enforceScheduleConstraints()
-    saveSchedule()
+    const proposedTime = msToTimeString(editFormTimeMs.value)
+    
+    // Validation
+    const getMins = (t: string) => {
+      const [h=0, m=0] = t.split(':').map(Number)
+      return h * 60 + m
+    }
+    const proposedMins = getMins(proposedTime)
+
+    // 1. Validation using SCHEDULE_RULES
+    for (const rule of SCHEDULE_RULES) {
+      if (rule.end === slot.id) {
+        if (rule.requiresSourceLogged && !todayReadings.value[rule.start]) continue; // ignore if condition not met
+
+        // We only enforce validation walls against events that have ACTUALLY happened (logged)!
+        // If the start event hasn't happened yet, it's just a planned time and will dynamically snap.
+        if (!todayReadings.value[rule.start]) continue;
+
+        // We use the actual logged time of start
+        const startMins = getActualMins(rule.start)
+        
+        // Validation expects it to be exactly gap, or >= gap. 
+        // For our modal validation, we just want to block < gap (earlier than allowed).
+        if (proposedMins < startMins + rule.gap) {
+          if (rule.strict) {
+            const startSlot = schedule.value.find(s => s.id === rule.start)
+            const name = startSlot ? startSlot.name : rule.start;
+            const minH = Math.floor((startMins + rule.gap) / 60) % 24
+            const minM = (startMins + rule.gap) % 60
+            const minTimeStr = `${minH.toString().padStart(2, '0')}:${minM.toString().padStart(2, '0')}`
+            const hrs = rule.gap >= 60 ? `${rule.gap / 60} hours` : `${rule.gap} minutes`
+            editFormError.value = `Must be at least ${hrs} after ${name} (earliest: ${minTimeStr})`
+            return
+          }
+        }
+      }
+    }
+
+    slot.time = proposedTime
   }
+
+  const logTimestamp = editFormTimeMs.value !== null ? editFormTimeMs.value : Date.now()
 
   // Save Reading / Snack Status
   if (slot?.requiresReading) {
@@ -252,12 +393,17 @@ function saveEditModal() {
       }
       todayReadings.value[slot.id] = {
         value: editFormReading.value,
-        timestamp: existing?.timestamp || Date.now()
+        timestamp: logTimestamp
       }
     }
   } else if (slot && !slot.requiresReading) {
     if (!todayReadings.value[slot.id]) recordedNew = true
-    todayReadings.value[slot.id] = { value: 0, timestamp: Date.now() }
+    todayReadings.value[slot.id] = { value: 0, timestamp: logTimestamp }
+  }
+
+  if (slot && editFormTimeMs.value !== null) {
+    updateTimeBasedOnConstraints()
+    saveSchedule()
   }
   
   persistReadings()
@@ -298,23 +444,30 @@ const dateString = computed(() => {
 
 const currentMinutes = computed(() => now.value.getHours() * 60 + now.value.getMinutes())
 
-function isSlotActive(slot: ScheduleSlot) {
+function isSlotDue(slot: ScheduleSlot) {
   if (todayReadings.value[slot.id]) return false;
   
   const [hours = 0, mins = 0] = slot.time.split(':').map(Number)
   const slotMinutes = hours * 60 + mins
 
-  let diff = Math.abs(currentMinutes.value - slotMinutes)
-  diff = Math.min(diff, 1440 - diff) 
+  // Due if it's 10 mins before, or anytime after
+  // We add a check for midnight wrap if someone scheduled something at 00:00, but typically times are > 00:00.
+  // Using simple minute comparison works for a single day.
+  if (currentMinutes.value >= slotMinutes - 10) {
+    return true;
+  }
+  
+  // Handle case where slot is just after midnight (e.g. 00:05) and current time is 23:55
+  return slotMinutes < 10 && currentMinutes.value >= 1440 - (10 - slotMinutes);
+  
 
-  return diff <= 10
 }
 
 const targetSlotIndex = computed(() => {
   const currentMins = currentMinutes.value
   for (let i = 0; i < schedule.value.length; i++) {
     const slot = schedule.value[i]
-    if (slot && isSlotActive(slot)) return i;
+    if (slot && isSlotDue(slot)) return i;
   }
   for (let i = 0; i < schedule.value.length; i++) {
     const slot = schedule.value[i]
@@ -359,17 +512,33 @@ function scrollToActive() {
       <!-- Minimal Header with Theme Toggle -->
       <div class="px-6 pt-10 pb-4 shrink-0 flex items-start justify-between z-20">
         <div>
-          <h1 class="font-bold tracking-widest uppercase text-[10px] mb-0.5" :class="isDarkMode ? 'text-slate-500' : 'text-slate-400'">Sugar Buddy</h1>
+          <div class="flex items-center gap-2 mb-0.5">
+            <h1 class="font-bold tracking-widest uppercase text-[10px]" :class="isDarkMode ? 'text-slate-500' : 'text-slate-400'">Gluco Monitor (GDM)</h1>
+            <span v-if="isSignedIn" class="text-[9px] font-medium tracking-wide flex items-center gap-1" :class="isDarkMode ? 'text-slate-500' : 'text-slate-400'">
+              <svg v-if="isSyncing" class="animate-spin h-2.5 w-2.5" xmlns="http://www.w3.org/2000/svg" fill="none" viewBox="0 0 24 24">
+                <circle class="opacity-25" cx="12" cy="12" r="10" stroke="currentColor" stroke-width="4"></circle>
+                <path class="opacity-75" fill="currentColor" d="M4 12a8 8 0 018-8V0C5.373 0 0 5.373 0 12h4zm2 5.291A7.962 7.962 0 014 12H0c0 3.042 1.135 5.824 3 7.938l3-2.647z"></path>
+              </svg>
+              <svg v-else class="h-2.5 w-2.5 text-emerald-500" xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="3" stroke-linecap="round" stroke-linejoin="round">
+                <polyline points="20 6 9 17 4 12"></polyline>
+              </svg>
+              {{ isSyncing ? 'SYNCING' : 'SYNCED' }}
+            </span>
+          </div>
           <p class="text-sm font-semibold" :class="isDarkMode ? 'text-slate-300' : 'text-slate-600'">{{ dateString }}</p>
         </div>
-        <button 
-          @click="toggleTheme" 
-          class="w-10 h-10 rounded-full flex items-center justify-center transition-colors shadow-sm"
-          :class="isDarkMode ? 'bg-slate-800 text-yellow-400 hover:bg-slate-700' : 'bg-white text-slate-400 hover:bg-slate-100'"
-        >
-          <svg v-if="isDarkMode" xmlns="http://www.w3.org/2000/svg" width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5" stroke-linecap="round" stroke-linejoin="round"><circle cx="12" cy="12" r="5"></circle><line x1="12" y1="1" x2="12" y2="3"></line><line x1="12" y1="21" x2="12" y2="23"></line><line x1="4.22" y1="4.22" x2="5.64" y2="5.64"></line><line x1="18.36" y1="18.36" x2="19.78" y2="19.78"></line><line x1="1" y1="12" x2="3" y2="12"></line><line x1="21" y1="12" x2="23" y2="12"></line><line x1="4.22" y1="19.78" x2="5.64" y2="18.36"></line><line x1="18.36" y1="5.64" x2="19.78" y2="4.22"></line></svg>
-          <svg v-else xmlns="http://www.w3.org/2000/svg" width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5" stroke-linecap="round" stroke-linejoin="round"><path d="M21 12.79A9 9 0 1 1 11.21 3 7 7 0 0 0 21 12.79z"></path></svg>
-        </button>
+        <n-dropdown :options="dropdownOptions" @select="handleDropdownSelect" placement="bottom-end" trigger="click">
+          <button 
+            class="w-10 h-10 rounded-full flex items-center justify-center transition-colors shadow-sm shrink-0"
+            :class="isDarkMode ? 'bg-slate-800 text-slate-300 hover:bg-slate-700' : 'bg-white text-slate-600 hover:bg-slate-100'"
+          >
+            <svg xmlns="http://www.w3.org/2000/svg" width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5" stroke-linecap="round" stroke-linejoin="round">
+              <circle cx="12" cy="12" r="1"></circle>
+              <circle cx="12" cy="5" r="1"></circle>
+              <circle cx="12" cy="19" r="1"></circle>
+            </svg>
+          </button>
+        </n-dropdown>
       </div>
 
       <!-- Clock (Consistent Flow) -->
@@ -397,7 +566,7 @@ function scrollToActive() {
             :name="slot.name"
             :time="slot.time"
             :color-class="getSlotColorClass(index)!"
-            :is-active="isSlotActive(slot)"
+            :is-active="isSlotDue(slot)"
             :reading-value="todayReadings[slot.id]?.value"
           />
           <SnackCard
@@ -405,7 +574,7 @@ function scrollToActive() {
             :name="slot.name"
             :time="slot.time"
             :color-class="getSlotColorClass(index)!"
-            :is-active="isSlotActive(slot)"
+            :is-active="isSlotDue(slot)"
             :is-taken="!!todayReadings[slot.id]"
           />
         </div>
@@ -423,7 +592,7 @@ function scrollToActive() {
       <n-modal v-model:show="showEditModal">
         <n-card 
           style="width: 340px; border-radius: 28px;" 
-          :title="activeSlotData?.requiresReading ? 'Log ' + activeSlotData?.name : 'Confirm Snack'" 
+          :title="activeSlotData?.requiresReading ? 'Log ' + activeSlotData?.name : 'Confirm ' + activeSlotData?.name" 
           :bordered="false" 
           size="huge" 
           role="dialog" 
@@ -459,13 +628,16 @@ function scrollToActive() {
             
             <template v-else>
               <!-- Snack Confirmation -->
-              <div class="flex flex-col items-center justify-center text-center py-2">
-                 <div class="flex items-center gap-3 w-full">
-                   <span class="text-slate-600 dark:text-slate-300 font-bold text-base whitespace-nowrap">Snack taken at</span>
-                   <n-time-picker v-model:value="editFormTimeMs" format="HH:mm" size="large" class="font-bold flex-1" />
-                 </div>
+              <div>
+                <label class="text-xs font-extrabold text-slate-400 uppercase tracking-widest mb-2 block">{{ activeSlotData?.name }} Taken At</label>
+                <n-time-picker v-model:value="editFormTimeMs" format="HH:mm" size="large" class="w-full font-bold" />
               </div>
             </template>
+            
+            <div v-if="editFormError" class="mt-4 px-4 py-3 rounded-xl bg-red-50 dark:bg-red-900/30 text-red-600 dark:text-red-400 text-sm font-semibold flex items-start gap-2 leading-tight">
+              <svg class="shrink-0 mt-0.5" xmlns="http://www.w3.org/2000/svg" width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5" stroke-linecap="round" stroke-linejoin="round"><circle cx="12" cy="12" r="10"></circle><line x1="12" y1="8" x2="12" y2="12"></line><line x1="12" y1="16" x2="12.01" y2="16"></line></svg>
+              <span>{{ editFormError }}</span>
+            </div>
             
           </div>
 
