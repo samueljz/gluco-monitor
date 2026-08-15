@@ -41,13 +41,10 @@ const themeOverrides = computed<GlobalThemeOverrides>(() => ({
 }))
 
 // Types
-interface ScheduleSlot {
-  id: string;
-  name: string;
-  time: string; // HH:mm
-  requiresReading: boolean;
-  colorClass: string;
-}
+import { defaultSchedule, DEPENDENT_PAIRS } from './constants/schedule'
+import type { ScheduleSlot } from './constants/schedule'
+import BloodSugarCard from './components/BloodSugarCard.vue'
+import SnackCard from './components/SnackCard.vue'
 
 interface Reading {
   value: number;
@@ -55,17 +52,6 @@ interface Reading {
 }
 
 // State
-const defaultSchedule: ScheduleSlot[] = [
-  { id: 'before_breakfast', name: 'Before Breakfast', time: '08:00', requiresReading: true, colorClass: 'bg-gradient-to-br from-orange-400 to-amber-500' },
-  { id: 'after_breakfast', name: 'After Breakfast', time: '10:00', requiresReading: true, colorClass: 'bg-gradient-to-br from-amber-400 to-yellow-500' },
-  { id: 'morning_snack', name: 'Morning Snack', time: '10:30', requiresReading: false, colorClass: 'bg-gradient-to-br from-emerald-400 to-teal-500' },
-  { id: 'before_lunch', name: 'Before Lunch', time: '12:30', requiresReading: true, colorClass: 'bg-gradient-to-br from-teal-400 to-cyan-500' },
-  { id: 'after_lunch', name: 'After Lunch', time: '14:30', requiresReading: true, colorClass: 'bg-gradient-to-br from-cyan-500 to-blue-500' },
-  { id: 'afternoon_snack', name: 'Afternoon Snack', time: '15:30', requiresReading: false, colorClass: 'bg-gradient-to-br from-blue-400 to-indigo-500' },
-  { id: 'before_dinner', name: 'Before Dinner', time: '18:00', requiresReading: true, colorClass: 'bg-gradient-to-br from-indigo-500 to-violet-500' },
-  { id: 'after_dinner', name: 'After Dinner', time: '20:00', requiresReading: true, colorClass: 'bg-gradient-to-br from-violet-500 to-purple-500' },
-  { id: 'before_bedtime', name: 'Before Bedtime', time: '21:00', requiresReading: true, colorClass: 'bg-gradient-to-br from-purple-500 to-fuchsia-600' },
-]
 
 const schedule = ref<ScheduleSlot[]>(JSON.parse(JSON.stringify(defaultSchedule)))
 const todayReadings = ref<Record<string, Reading>>({})
@@ -86,7 +72,7 @@ const activeSlotData = computed(() => {
 
 function timeStringToMs(timeStr: string): number {
   if (!timeStr) return 0;
-  const [h, m] = timeStr.split(':').map(Number);
+  const [h = 0, m = 0] = timeStr.split(':').map(Number);
   const d = new Date();
   d.setHours(h, m, 0, 0);
   return d.getTime();
@@ -98,11 +84,27 @@ function msToTimeString(ms: number | null): string {
   return `${d.getHours().toString().padStart(2, '0')}:${d.getMinutes().toString().padStart(2, '0')}`;
 }
 
-function formatFriendlyTime(timeStr: string) {
-  const [h, m] = timeStr.split(':').map(Number);
-  const ampm = h >= 12 ? 'PM' : 'AM';
-  const hours = h % 12 || 12;
-  return `${hours}:${m.toString().padStart(2, '0')} ${ampm}`;
+const colorPalette = [
+  'bg-gradient-to-br from-yellow-400 to-lime-500',
+  'bg-gradient-to-br from-lime-400 to-emerald-500',
+  'bg-gradient-to-br from-emerald-400 to-teal-500',
+  'bg-gradient-to-br from-teal-400 to-cyan-500',
+  'bg-gradient-to-br from-cyan-400 to-sky-500',
+  'bg-gradient-to-br from-sky-400 to-blue-500',
+  'bg-gradient-to-br from-blue-400 to-indigo-500',
+  'bg-gradient-to-br from-indigo-400 to-violet-500',
+  'bg-gradient-to-br from-violet-400 to-purple-500',
+  'bg-gradient-to-br from-purple-400 to-fuchsia-500',
+  'bg-gradient-to-br from-fuchsia-400 to-pink-500',
+  'bg-gradient-to-br from-pink-400 to-rose-500',
+  'bg-gradient-to-br from-rose-400 to-red-500',
+  'bg-gradient-to-br from-red-400 to-orange-500',
+  'bg-gradient-to-br from-orange-400 to-amber-500',
+  'bg-gradient-to-br from-amber-400 to-yellow-500',
+]
+
+function getSlotColorClass(index: number) {
+  return colorPalette[index % colorPalette.length]
 }
 
 onMounted(() => {
@@ -115,7 +117,7 @@ onMounted(() => {
       const parsed = JSON.parse(savedSchedule)
       schedule.value = parsed.map((p: any) => {
         const def = defaultSchedule.find(d => d.id === p.id)
-        return { ...def, ...p, colorClass: def?.colorClass || p.colorClass }
+        return { ...def, ...p }
       })
     } catch (e) {
       console.error('Failed to parse schedule', e)
@@ -175,7 +177,7 @@ function enforceScheduleConstraints() {
   const getMins = (id: string) => {
     const s = schedule.value.find(x => x.id === id)
     if (!s) return 0
-    const [h, m] = s.time.split(':').map(Number)
+    const [h = 0, m = 0] = s.time.split(':').map(Number)
     return h * 60 + m
   }
   const setMins = (id: string, mins: number) => {
@@ -187,22 +189,19 @@ function enforceScheduleConstraints() {
     }
   }
   
-  const meals = ['before_breakfast', 'morning_snack', 'before_lunch', 'afternoon_snack', 'before_dinner']
-  for (let i = 0; i < meals.length - 1; i++) {
-    const current = getMins(meals[i])
-    const next = getMins(meals[i+1])
-    if (next < current + 120) setMins(meals[i+1], current + 120)
+  const mealsSequence = schedule.value.filter(s => s.isMeal).map(s => s.id);
+  for (let i = 0; i < mealsSequence.length - 1; i++) {
+    const m1 = mealsSequence[i]
+    const m2 = mealsSequence[i+1]
+    if (!m1 || !m2) continue
+    const current = getMins(m1)
+    const next = getMins(m2)
+    if (next < current + 120) setMins(m2, current + 120)
   }
 
-  const pairs = [
-    ['before_breakfast', 'after_breakfast', 120],
-    ['before_lunch', 'after_lunch', 120],
-    ['before_dinner', 'after_dinner', 120],
-    ['before_dinner', 'before_bedtime', 180]
-  ]
-  for (const [start, end, gap] of pairs) {
-    const startMins = getMins(start as string)
-    setMins(end as string, startMins + (gap as number))
+  for (const [start, end, gap] of DEPENDENT_PAIRS) {
+    const startMins = getMins(start)
+    setMins(end, startMins + gap)
   }
 }
 
@@ -221,7 +220,7 @@ function openEditModal(slotId: string) {
   }
   
   if (slot.requiresReading) {
-    editFormReading.value = hasReading ? todayReadings.value[slotId].value : null
+    editFormReading.value = hasReading ? (todayReadings.value[slotId]?.value ?? null) : null
   } else {
     editFormSnackTaken.value = hasReading
   }
@@ -302,7 +301,7 @@ const currentMinutes = computed(() => now.value.getHours() * 60 + now.value.getM
 function isSlotActive(slot: ScheduleSlot) {
   if (todayReadings.value[slot.id]) return false;
   
-  const [hours, mins] = slot.time.split(':').map(Number)
+  const [hours = 0, mins = 0] = slot.time.split(':').map(Number)
   const slotMinutes = hours * 60 + mins
 
   let diff = Math.abs(currentMinutes.value - slotMinutes)
@@ -314,15 +313,17 @@ function isSlotActive(slot: ScheduleSlot) {
 const targetSlotIndex = computed(() => {
   const currentMins = currentMinutes.value
   for (let i = 0; i < schedule.value.length; i++) {
-    if (isSlotActive(schedule.value[i])) return i;
+    const slot = schedule.value[i]
+    if (slot && isSlotActive(slot)) return i;
   }
   for (let i = 0; i < schedule.value.length; i++) {
     const slot = schedule.value[i]
+    if (!slot) continue;
     if (slot.requiresReading && todayReadings.value[slot.id]) continue;
     if (!slot.requiresReading && todayReadings.value[slot.id]) continue;
     
     if (!slot.requiresReading) {
-      const [hours, mins] = slot.time.split(':').map(Number)
+      const [hours = 0, mins = 0] = slot.time.split(':').map(Number)
       const slotMins = hours * 60 + mins
       if (currentMins > slotMins + 45) continue;
     }
@@ -333,7 +334,18 @@ const targetSlotIndex = computed(() => {
 
 function scrollToActive() {
   const el = document.getElementById('card-' + targetSlotIndex.value)
-  if (el) el.scrollIntoView({ behavior: 'smooth', block: 'center' })
+  const container = document.getElementById('today-scroll-container')
+  if (el && container) {
+    const elTop = el.offsetTop
+    const containerHeight = container.clientHeight
+    const elHeight = el.clientHeight
+    container.scrollTo({
+      top: elTop - (containerHeight / 2) + (elHeight / 2),
+      behavior: 'smooth'
+    })
+  } else if (el) {
+    el.scrollIntoView({ behavior: 'smooth', block: 'center' })
+  }
 }
 </script>
 
@@ -369,10 +381,10 @@ function scrollToActive() {
       </div>
 
       <!-- Tabs Area -->
-      <div class="flex-1 w-full flex flex-col relative z-10 overflow-hidden">
-        <n-tabs type="segment" justify-content="space-evenly" class="px-4 mb-2 shrink-0">
+      <div class="flex-1 min-h-0 w-full flex flex-col relative z-10 overflow-hidden">
+        <n-tabs type="segment" justify-content="space-evenly" class="mb-2 flex flex-col h-full" pane-wrapper-style="flex: 1; min-height: 0;" pane-style="height: 100%;">
           <n-tab-pane name="today" tab="Today" display-directive="show">
-            <div class="w-full overflow-y-auto no-scrollbar pb-32 flex flex-col gap-4 transition-colors duration-500" style="height: calc(100vh - 210px);">
+            <div id="today-scroll-container" class="w-full h-full relative overflow-y-auto no-scrollbar px-4 pb-32 pt-2 flex flex-col gap-4 transition-colors duration-500">
         <div 
           v-for="(slot, index) in schedule" 
           :key="slot.id" 
@@ -380,60 +392,27 @@ function scrollToActive() {
           @click="openEditModal(slot.id)"
           class="cursor-pointer"
         >
-          <n-card 
-            class="w-full border-0 transition-all duration-300 overflow-hidden relative shadow-[0_8px_30px_rgb(0,0,0,0.06)]"
-            :class="[slot.colorClass, isSlotActive(slot) ? 'scale-[1.02] ring-4 ring-blue-500/30 z-10' : 'opacity-[0.98] hover:scale-[1.01]']"
-            style="background-color: transparent;"
-          >
-            <!-- Decorative glare -->
-            <div class="absolute top-0 right-0 w-32 h-32 bg-white/10 rounded-full blur-2xl -mr-10 -mt-10 pointer-events-none"></div>
-
-            <div class="text-white relative z-10 flex justify-between items-center min-h-[64px]">
-              
-              <!-- Left side: Title and Time -->
-              <div class="flex flex-col flex-1 pr-4">
-                <h3 class="text-[20px] font-extrabold drop-shadow-sm tracking-tight leading-tight mb-1.5">{{ slot.name }}</h3>
-                <span class="text-white/90 font-bold text-xs flex items-center gap-1.5 uppercase tracking-wide">
-                  <svg xmlns="http://www.w3.org/2000/svg" class="h-3.5 w-3.5 opacity-80" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="3" stroke-linecap="round" stroke-linejoin="round"><circle cx="12" cy="12" r="10"/><polyline points="12 6 12 12 16 14"/></svg>
-                  {{ formatFriendlyTime(slot.time) }}
-                </span>
-              </div>
-
-              <!-- Right side: Reading/Snack -->
-              <div class="flex flex-col items-end shrink-0 pl-4 border-l border-white/20">
-                <template v-if="slot.requiresReading">
-                  <div v-if="todayReadings[slot.id]" class="flex items-center animate-in fade-in zoom-in duration-500">
-                    <div class="flex flex-col items-end pr-4 border-r border-white/20">
-                      <span class="text-[38px] leading-none font-black drop-shadow-md">{{ todayReadings[slot.id].value }}</span>
-                      <span class="text-[9px] font-bold text-white/80 uppercase tracking-widest mt-1">mmol/L</span>
-                    </div>
-                    <div class="w-10 h-10 ml-4 rounded-full bg-white/20 flex items-center justify-center shadow-inner shrink-0">
-                      <svg xmlns="http://www.w3.org/2000/svg" width="24" height="24" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="3.5" stroke-linecap="round" stroke-linejoin="round"><polyline points="20 6 9 17 4 12"></polyline></svg>
-                    </div>
-                  </div>
-                  <div v-else class="flex flex-col items-end">
-                    <span v-if="isSlotActive(slot)" class="bg-white text-slate-800 font-extrabold text-[10px] uppercase tracking-widest px-3 py-1.5 rounded-full shadow-sm animate-pulse whitespace-nowrap">Log Now</span>
-                    <div v-else class="w-10 h-10 rounded-full border-2 border-white/30 border-dashed flex items-center justify-center opacity-70"></div>
-                  </div>
-                </template>
-                <template v-else>
-                  <div v-if="todayReadings[slot.id]" class="w-10 h-10 rounded-full bg-white/20 flex items-center justify-center animate-in fade-in zoom-in duration-300 shadow-inner">
-                    <svg xmlns="http://www.w3.org/2000/svg" width="24" height="24" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="3.5" stroke-linecap="round" stroke-linejoin="round"><polyline points="20 6 9 17 4 12"></polyline></svg>
-                  </div>
-                  <div v-else class="flex flex-col items-end">
-                    <span v-if="isSlotActive(slot)" class="bg-white text-slate-800 font-extrabold text-[10px] uppercase tracking-widest px-3 py-1.5 rounded-full shadow-sm animate-pulse whitespace-nowrap">Log Now</span>
-                    <div v-else class="w-10 h-10 rounded-full border-2 border-white/30 border-dashed flex items-center justify-center opacity-70"></div>
-                  </div>
-                </template>
-              </div>
-
-            </div>
-          </n-card>
+          <BloodSugarCard
+            v-if="slot.requiresReading"
+            :name="slot.name"
+            :time="slot.time"
+            :color-class="getSlotColorClass(index)!"
+            :is-active="isSlotActive(slot)"
+            :reading-value="todayReadings[slot.id]?.value"
+          />
+          <SnackCard
+            v-else
+            :name="slot.name"
+            :time="slot.time"
+            :color-class="getSlotColorClass(index)!"
+            :is-active="isSlotActive(slot)"
+            :is-taken="!!todayReadings[slot.id]"
+          />
         </div>
             </div>
           </n-tab-pane>
           <n-tab-pane name="history" tab="History">
-            <div class="w-full overflow-y-auto no-scrollbar pb-32 transition-colors duration-500" style="height: calc(100vh - 210px);">
+            <div class="w-full h-full overflow-y-auto no-scrollbar pb-32 transition-colors duration-500">
               <HistoryTab />
             </div>
           </n-tab-pane>
@@ -519,6 +498,7 @@ function scrollToActive() {
 </template>
 
 <style>
+.n-tabs-nav { padding: 0 16px !important; }
 .no-scrollbar::-webkit-scrollbar { display: none; }
 .no-scrollbar { -ms-overflow-style: none; scrollbar-width: none; }
 </style>
