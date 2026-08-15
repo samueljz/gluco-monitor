@@ -22,7 +22,7 @@
         {{ isSyncing ? 'Syncing...' : 'Synced' }}
       </span>
       <button 
-        @click="syncData" 
+        @click="() => syncData(true)" 
         :disabled="isSyncing"
         class="p-1.5 text-slate-400 hover:text-slate-600 dark:hover:text-slate-200 transition-colors"
         title="Sync Now"

@@ -45,7 +45,7 @@ import { defaultSchedule, SCHEDULE_RULES } from './constants/schedule'
 import type { ScheduleSlot } from './constants/schedule'
 import BloodSugarCard from './components/BloodSugarCard.vue'
 import SnackCard from './components/SnackCard.vue'
-import { syncData, isSignedIn, isSyncing, handleAuthClick, handleSignoutClick, initGoogleApi } from './services/driveSync'
+import { syncData, isSignedIn, isSyncing, syncError, handleAuthClick, handleSignoutClick, initGoogleApi } from './services/driveSync'
 
 interface Reading {
   value: number;
@@ -514,15 +514,30 @@ function scrollToActive() {
         <div>
           <div class="flex items-center gap-2 mb-0.5">
             <h1 class="font-bold tracking-widest uppercase text-[10px]" :class="isDarkMode ? 'text-slate-500' : 'text-slate-400'">Gluco Monitor (GDM)</h1>
-            <span v-if="isSignedIn" class="text-[9px] font-medium tracking-wide flex items-center gap-1" :class="isDarkMode ? 'text-slate-500' : 'text-slate-400'">
-              <svg v-if="isSyncing" class="animate-spin h-2.5 w-2.5" xmlns="http://www.w3.org/2000/svg" fill="none" viewBox="0 0 24 24">
-                <circle class="opacity-25" cx="12" cy="12" r="10" stroke="currentColor" stroke-width="4"></circle>
-                <path class="opacity-75" fill="currentColor" d="M4 12a8 8 0 018-8V0C5.373 0 0 5.373 0 12h4zm2 5.291A7.962 7.962 0 014 12H0c0 3.042 1.135 5.824 3 7.938l3-2.647z"></path>
-              </svg>
-              <svg v-else class="h-2.5 w-2.5 text-emerald-500" xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="3" stroke-linecap="round" stroke-linejoin="round">
-                <polyline points="20 6 9 17 4 12"></polyline>
-              </svg>
-              {{ isSyncing ? 'SYNCING' : 'SYNCED' }}
+            <span v-if="isSignedIn" class="text-[9px] font-medium tracking-wide flex items-center gap-1">
+              <template v-if="isSyncing">
+                <svg class="animate-spin h-2.5 w-2.5" :class="isDarkMode ? 'text-slate-400' : 'text-slate-500'" xmlns="http://www.w3.org/2000/svg" fill="none" viewBox="0 0 24 24">
+                  <circle class="opacity-25" cx="12" cy="12" r="10" stroke="currentColor" stroke-width="4"></circle>
+                  <path class="opacity-75" fill="currentColor" d="M4 12a8 8 0 018-8V0C5.373 0 0 5.373 0 12h4zm2 5.291A7.962 7.962 0 014 12H0c0 3.042 1.135 5.824 3 7.938l3-2.647z"></path>
+                </svg>
+                <span :class="isDarkMode ? 'text-slate-400' : 'text-slate-500'">SYNCING</span>
+              </template>
+              <template v-else-if="syncError">
+                <button @click="syncData()" class="flex items-center gap-1 text-rose-500 dark:text-rose-400 hover:underline cursor-pointer" :title="syncError">
+                  <svg class="h-2.5 w-2.5" xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="3" stroke-linecap="round" stroke-linejoin="round">
+                    <circle cx="12" cy="12" r="10"></circle>
+                    <line x1="12" y1="8" x2="12" y2="12"></line>
+                    <line x1="12" y1="16" x2="12.01" y2="16"></line>
+                  </svg>
+                  <span>SYNC ERROR</span>
+                </button>
+              </template>
+              <template v-else>
+                <svg class="h-2.5 w-2.5 text-emerald-500" xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="3" stroke-linecap="round" stroke-linejoin="round">
+                  <polyline points="20 6 9 17 4 12"></polyline>
+                </svg>
+                <span :class="isDarkMode ? 'text-slate-500' : 'text-slate-400'">SYNCED</span>
+              </template>
             </span>
           </div>
           <p class="text-sm font-semibold" :class="isDarkMode ? 'text-slate-300' : 'text-slate-600'">{{ dateString }}</p>
