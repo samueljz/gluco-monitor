@@ -3,7 +3,7 @@
   "version": "0.0.1",
   "private": true,
   "type": "module",
-  "homepage": "https://https://github.com/samueljz/gluco-monitor",
+  "homepage": "https://github.com/samueljz/gluco-monitor",
   "scripts": {
     "dev": "vite",
     "build": "run-p type-check \"build-only {@}\" --",
