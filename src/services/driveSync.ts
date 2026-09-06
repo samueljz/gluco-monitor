@@ -15,9 +15,18 @@ export const isGapiLoaded = ref(false)
 export const isSignedIn = ref(false)
 export const isSyncing = ref(false)
 export const syncError = ref<string | null>(null)
+// True once silent (popup-free) token renewal has actually failed, meaning
+// the user must click through a visible Google consent prompt to continue.
+export const needsReauth = ref(false)
 
 let tokenClient: any = null
 let pendingRefreshPromise: Promise<boolean> | null = null
+let refreshLoopHandle: number | null = null
+
+// Proactively renew the token well before it expires so a real sync call
+// never has to block on a just-in-time silent refresh.
+const PROACTIVE_REFRESH_WINDOW_MS = 5 * 60 * 1000
+const REFRESH_LOOP_INTERVAL_MS = 60 * 1000
 
 function saveTokenResponse(tokenResponse: any) {
   const expiresInSeconds = Number(tokenResponse.expires_in) || 3600
@@ -26,15 +35,22 @@ function saveTokenResponse(tokenResponse: any) {
   
   localStorage.setItem(TOKEN_KEY, JSON.stringify(tokenResponse))
   localStorage.setItem(TOKEN_EXPIRY_KEY, expiresAt.toString())
-  
+
   if (window.gapi && gapi.client) {
     gapi.client.setToken(tokenResponse)
   }
+
+  needsReauth.value = false
 }
 
 export function isTokenExpired(): boolean {
   const expiresAt = Number(localStorage.getItem(TOKEN_EXPIRY_KEY) || 0)
   return !expiresAt || Date.now() >= expiresAt
+}
+
+function isTokenExpiringSoon(): boolean {
+  const expiresAt = Number(localStorage.getItem(TOKEN_EXPIRY_KEY) || 0)
+  return !expiresAt || expiresAt - Date.now() <= PROACTIVE_REFRESH_WINDOW_MS
 }
 
 export async function ensureValidToken(): Promise<boolean> {
@@ -68,48 +84,57 @@ export async function ensureValidToken(): Promise<boolean> {
     return false
   }
 
-  // Request new token silently without user interaction popup
+  // Request new token silently without user interaction popup. Google will
+  // grant this without a prompt as long as the user still has an active
+  // Google session and previously consented; it only fails once that's no
+  // longer true (signed out of Google, revoked access, etc).
   pendingRefreshPromise = new Promise<boolean>((resolve) => {
     let resolved = false
 
-    const timeout = setTimeout(() => {
-      if (!resolved) {
-        resolved = true
-        pendingRefreshPromise = null
-        resolve(false)
-      }
-    }, 5000)
+    const finish = (ok: boolean) => {
+      if (resolved) return
+      resolved = true
+      pendingRefreshPromise = null
+      if (!ok) needsReauth.value = true
+      resolve(ok)
+    }
+
+    const timeout = setTimeout(() => finish(false), 5000)
 
     try {
       tokenClient.requestAccessToken({
         prompt: '',
         callback: (response: any) => {
-          if (resolved) return
-          resolved = true
           clearTimeout(timeout)
-          pendingRefreshPromise = null
-
           if (response && !response.error) {
             saveTokenResponse(response)
             isSignedIn.value = true
-            resolve(true)
+            finish(true)
           } else {
             console.warn('Silent token refresh failed:', response?.error)
-            resolve(false)
+            finish(false)
           }
         },
       })
     } catch (err) {
-      if (!resolved) {
-        resolved = true
-        clearTimeout(timeout)
-        pendingRefreshPromise = null
-        resolve(false)
-      }
+      clearTimeout(timeout)
+      finish(false)
     }
   })
 
   return pendingRefreshPromise
+}
+
+// Keep the token fresh in the background so an interactive sync rarely has
+// to wait on (or risk failing) a just-in-time silent refresh.
+function startProactiveRefreshLoop() {
+  if (refreshLoopHandle !== null) return
+  refreshLoopHandle = window.setInterval(() => {
+    if (!isSignedIn.value || needsReauth.value) return
+    if (isTokenExpiringSoon()) {
+      ensureValidToken()
+    }
+  }, REFRESH_LOOP_INTERVAL_MS)
 }
 
 export function initGoogleApi() {
@@ -147,6 +172,8 @@ export function initGoogleApi() {
           syncData()
         }
       }
+
+      startProactiveRefreshLoop()
     })
   }
 }
@@ -158,7 +185,10 @@ export function handleAuthClick() {
   }
   syncError.value = null
   const currentToken = window.gapi?.client?.getToken()
-  if (!currentToken || isTokenExpired()) {
+  // Only show the visible Google consent screen once silent renewal has
+  // actually failed (or we've never authenticated). Otherwise try silently
+  // first so the user isn't interrupted for a routine expiry.
+  if (!currentToken || needsReauth.value) {
     tokenClient.requestAccessToken({ prompt: 'consent' })
   } else {
     tokenClient.requestAccessToken({ prompt: '' })
@@ -173,6 +203,7 @@ export function handleSignoutClick() {
     localStorage.removeItem(TOKEN_EXPIRY_KEY)
     isSignedIn.value = false
     syncError.value = null
+    needsReauth.value = false
   }
 
   if (token && token.access_token && typeof google?.accounts?.oauth2?.revoke === 'function') {

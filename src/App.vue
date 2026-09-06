@@ -45,7 +45,7 @@ import { defaultSchedule, SCHEDULE_RULES } from './constants/schedule'
 import type { ScheduleSlot } from './constants/schedule'
 import BloodSugarCard from './components/BloodSugarCard.vue'
 import SnackCard from './components/SnackCard.vue'
-import { syncData, isSignedIn, isSyncing, syncError, handleAuthClick, handleSignoutClick, initGoogleApi } from './services/driveSync'
+import { syncData, isSignedIn, isSyncing, syncError, needsReauth, handleAuthClick, handleSignoutClick, initGoogleApi } from './services/driveSync'
 
 interface Reading {
   value: number;
@@ -117,7 +117,7 @@ onMounted(() => {
   }, 100)
 
   window.addEventListener('gdm_sync_complete', () => {
-    const savedSchedule = localStorage.getItem('gdm_schedule_v8')
+    const savedSchedule = localStorage.getItem('gdm_schedule_v9')
     if (savedSchedule) {
       try {
         const parsed = JSON.parse(savedSchedule)
@@ -135,7 +135,7 @@ onMounted(() => {
   const savedTheme = localStorage.getItem('gdm_theme')
   if (savedTheme === 'dark') isDarkMode.value = true
 
-  const savedSchedule = localStorage.getItem('gdm_schedule_v8')
+  const savedSchedule = localStorage.getItem('gdm_schedule_v9')
   if (savedSchedule) {
     try {
       const parsed = JSON.parse(savedSchedule)
@@ -147,7 +147,7 @@ onMounted(() => {
       console.error('Failed to parse schedule', e)
     }
   } else {
-    localStorage.setItem('gdm_schedule_v8', JSON.stringify(schedule.value))
+    localStorage.setItem('gdm_schedule_v9', JSON.stringify(schedule.value))
   }
 
   loadTodayReadings()
@@ -204,9 +204,11 @@ const dropdownOptions = computed(() => [
     disabled: notificationPermission.value === 'granted' || notificationPermission.value === 'denied'
   },
   {
-    label: isSignedIn.value 
-      ? (isSyncing.value ? 'Syncing to Drive...' : 'Sync Now')
-      : 'Connect Google Drive',
+    label: !isSignedIn.value
+      ? 'Connect Google Drive'
+      : needsReauth.value
+        ? 'Reconnect Google Drive'
+        : (isSyncing.value ? 'Syncing to Drive...' : 'Sync Now'),
     key: 'sync',
     disabled: isSyncing.value
   },
@@ -220,8 +222,8 @@ function handleDropdownSelect(key: string) {
   if (key === 'theme') {
     toggleTheme()
   } else if (key === 'sync') {
-    if (isSignedIn.value) syncData()
-    else handleAuthClick()
+    if (!isSignedIn.value || needsReauth.value) handleAuthClick()
+    else syncData()
   } else if (key === 'signout') {
     handleSignoutClick()
   } else if (key === 'notify') {
@@ -260,7 +262,7 @@ function persistReadings() {
 }
 
 function saveSchedule() {
-  localStorage.setItem('gdm_schedule_v8', JSON.stringify(schedule.value))
+  localStorage.setItem('gdm_schedule_v9', JSON.stringify(schedule.value))
   syncData()
 }
 
@@ -523,13 +525,13 @@ function scrollToActive() {
                 <span :class="isDarkMode ? 'text-slate-400' : 'text-slate-500'">SYNCING</span>
               </template>
               <template v-else-if="syncError">
-                <button @click="syncData()" class="flex items-center gap-1 text-rose-500 dark:text-rose-400 hover:underline cursor-pointer" :title="syncError">
+                <button @click="needsReauth ? handleAuthClick() : syncData()" class="flex items-center gap-1 text-rose-500 dark:text-rose-400 hover:underline cursor-pointer" :title="syncError">
                   <svg class="h-2.5 w-2.5" xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="3" stroke-linecap="round" stroke-linejoin="round">
                     <circle cx="12" cy="12" r="10"></circle>
                     <line x1="12" y1="8" x2="12" y2="12"></line>
                     <line x1="12" y1="16" x2="12.01" y2="16"></line>
                   </svg>
-                  <span>SYNC ERROR</span>
+                  <span>{{ needsReauth ? 'RECONNECT DRIVE' : 'SYNC ERROR' }}</span>
                 </button>
               </template>
               <template v-else>

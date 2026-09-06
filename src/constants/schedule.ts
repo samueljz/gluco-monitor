@@ -21,6 +21,7 @@ export const defaultSchedule: ScheduleSlot[] = [
   { id: 'dinner', name: 'Dinner', time: '18:00', requiresReading: false, mealType: 'meal' },
   { id: 'after_dinner', name: 'After Dinner', time: '20:00', requiresReading: true },
   { id: 'before_bedtime', name: 'Before Bedtime', time: '21:00', requiresReading: true },
+  { id: 'bedtime_snack', name: 'Bedtime Snack', time: '21:05', requiresReading: false, mealType: 'snack' },
 ]
 
 export interface ScheduleRule {
@@ -45,5 +46,6 @@ export const SCHEDULE_RULES: ScheduleRule[] = [
   { start: 'breakfast', end: 'after_breakfast', gap: 120, strict: false },
   { start: 'lunch', end: 'after_lunch', gap: 120, strict: false },
   { start: 'dinner', end: 'after_dinner', gap: 120, strict: false },
-  { start: 'dinner', end: 'before_bedtime', gap: 180, strict: false }
+  { start: 'dinner', end: 'before_bedtime', gap: 180, strict: false },
+  { start: 'before_bedtime', end: 'bedtime_snack', gap: 5, strict: false }
 ];
