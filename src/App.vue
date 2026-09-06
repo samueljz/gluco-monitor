@@ -4,8 +4,7 @@ import {
   NConfigProvider,
   NCard,
   NButton,
-  NInputNumber,
-  NTimePicker,
+  NInput,
   NModal,
   NTabs,
   NTabPane,
@@ -50,6 +49,7 @@ import { syncData, isSignedIn, isSyncing, syncError, needsReauth, handleAuthClic
 interface Reading {
   value: number;
   timestamp: number;
+  note?: string;
 }
 
 // State
@@ -65,6 +65,7 @@ const activeEditSlotId = ref<string | null>(null)
 const editFormTimeMs = ref<number | null>(null)
 const editFormReading = ref<number | null>(null)
 const editFormSnackTaken = ref(false)
+const editFormSnackNote = ref('')
 
 const activeSlotData = computed(() => {
   if (!activeEditSlotId.value) return null
@@ -83,6 +84,23 @@ function msToTimeString(ms: number | null): string {
   if (ms === null) return '00:00';
   const d = new Date(ms);
   return `${d.getHours().toString().padStart(2, '0')}:${d.getMinutes().toString().padStart(2, '0')}`;
+}
+
+const editFormTimeString = computed<string>({
+  get: () => msToTimeString(editFormTimeMs.value),
+  set: (val: string) => {
+    editFormTimeMs.value = val ? timeStringToMs(val) : null
+  }
+})
+
+function setEditTimeToNow() {
+  editFormTimeMs.value = Date.now()
+}
+
+function adjustReading(delta: number) {
+  const current = editFormReading.value ?? 0
+  const next = Math.round((current + delta) * 10) / 10
+  editFormReading.value = Math.max(0, next)
 }
 
 const colorPalette = [
@@ -324,8 +342,9 @@ function openEditModal(slotId: string) {
     editFormReading.value = hasReading ? (todayReadings.value[slotId]?.value ?? null) : null
   } else {
     editFormSnackTaken.value = hasReading
+    editFormSnackNote.value = todayReadings.value[slotId]?.note ?? ''
   }
-  
+
   editFormError.value = ''
   showEditModal.value = true
 }
@@ -400,7 +419,8 @@ function saveEditModal() {
     }
   } else if (slot && !slot.requiresReading) {
     if (!todayReadings.value[slot.id]) recordedNew = true
-    todayReadings.value[slot.id] = { value: 0, timestamp: logTimestamp }
+    const note = editFormSnackNote.value.trim()
+    todayReadings.value[slot.id] = { value: 0, timestamp: logTimestamp, ...(note ? { note } : {}) }
   }
 
   if (slot && editFormTimeMs.value !== null) {
@@ -593,6 +613,7 @@ function scrollToActive() {
             :color-class="getSlotColorClass(index)!"
             :is-active="isSlotDue(slot)"
             :is-taken="!!todayReadings[slot.id]"
+            :note="todayReadings[slot.id]?.note"
           />
         </div>
             </div>
@@ -622,32 +643,85 @@ function scrollToActive() {
               <!-- Edit Time -->
               <div>
                 <label class="text-xs font-extrabold text-slate-400 uppercase tracking-widest mb-2 block">Logged At</label>
-                <n-time-picker v-model:value="editFormTimeMs" format="HH:mm" size="large" class="w-full font-bold" />
+                <div class="flex gap-2">
+                  <input
+                    type="time"
+                    v-model="editFormTimeString"
+                    :style="{ colorScheme: isDarkMode ? 'dark' : 'light' }"
+                    class="flex-1 min-w-0 rounded-2xl px-4 py-3.5 text-3xl font-black tabular-nums tracking-tight bg-slate-100 dark:bg-slate-800 text-slate-800 dark:text-white outline-none focus:ring-4 focus:ring-blue-500/30 transition-shadow"
+                  />
+                  <button
+                    type="button"
+                    @click="setEditTimeToNow"
+                    class="shrink-0 px-4 rounded-2xl bg-blue-500/10 hover:bg-blue-500/20 active:scale-95 text-blue-600 dark:text-blue-400 font-extrabold text-xs uppercase tracking-widest transition-all"
+                  >
+                    Now
+                  </button>
+                </div>
               </div>
 
               <!-- Edit Reading -->
               <div>
                 <label class="text-xs font-extrabold text-slate-400 uppercase tracking-widest mb-2 block">Glucose Reading</label>
-                <n-input-number 
-                  v-model:value="editFormReading" 
-                  size="large" 
-                  :step="0.1" 
-                  clearable 
-                  placeholder="0.0"
-                  class="w-full font-bold text-lg"
-                >
-                   <template #suffix>
-                     <span class="text-slate-400 font-semibold text-xs">mmol/L</span>
-                   </template>
-                </n-input-number>
+                <div class="flex items-center gap-3 bg-slate-100 dark:bg-slate-800 rounded-2xl px-3 py-2.5">
+                  <button
+                    type="button"
+                    @click="adjustReading(-0.1)"
+                    class="shrink-0 w-12 h-12 rounded-xl bg-white dark:bg-slate-700 shadow-sm active:scale-95 transition-transform flex items-center justify-center text-2xl font-black text-slate-600 dark:text-slate-200"
+                  >−</button>
+                  <div class="flex-1 flex flex-col items-center min-w-0">
+                    <input
+                      type="number"
+                      inputmode="decimal"
+                      step="0.1"
+                      min="0"
+                      v-model.number="editFormReading"
+                      placeholder="0.0"
+                      class="w-full bg-transparent text-center text-4xl font-black tabular-nums text-slate-800 dark:text-white outline-none [appearance:textfield] [&::-webkit-outer-spin-button]:appearance-none [&::-webkit-inner-spin-button]:appearance-none"
+                    />
+                    <span class="text-[10px] font-bold text-slate-400 uppercase tracking-widest -mt-1">mmol/L</span>
+                  </div>
+                  <button
+                    type="button"
+                    @click="adjustReading(0.1)"
+                    class="shrink-0 w-12 h-12 rounded-xl bg-white dark:bg-slate-700 shadow-sm active:scale-95 transition-transform flex items-center justify-center text-2xl font-black text-slate-600 dark:text-slate-200"
+                  >+</button>
+                </div>
               </div>
             </template>
-            
+
             <template v-else>
               <!-- Snack Confirmation -->
               <div>
                 <label class="text-xs font-extrabold text-slate-400 uppercase tracking-widest mb-2 block">{{ activeSlotData?.name }} Taken At</label>
-                <n-time-picker v-model:value="editFormTimeMs" format="HH:mm" size="large" class="w-full font-bold" />
+                <div class="flex gap-2">
+                  <input
+                    type="time"
+                    v-model="editFormTimeString"
+                    :style="{ colorScheme: isDarkMode ? 'dark' : 'light' }"
+                    class="flex-1 min-w-0 rounded-2xl px-4 py-3.5 text-3xl font-black tabular-nums tracking-tight bg-slate-100 dark:bg-slate-800 text-slate-800 dark:text-white outline-none focus:ring-4 focus:ring-blue-500/30 transition-shadow"
+                  />
+                  <button
+                    type="button"
+                    @click="setEditTimeToNow"
+                    class="shrink-0 px-4 rounded-2xl bg-blue-500/10 hover:bg-blue-500/20 active:scale-95 text-blue-600 dark:text-blue-400 font-extrabold text-xs uppercase tracking-widest transition-all"
+                  >
+                    Now
+                  </button>
+                </div>
+              </div>
+
+              <!-- What was eaten -->
+              <div>
+                <label class="text-xs font-extrabold text-slate-400 uppercase tracking-widest mb-2 block">What did you eat?</label>
+                <n-input
+                  v-model:value="editFormSnackNote"
+                  type="textarea"
+                  placeholder="e.g. Apple and a handful of almonds"
+                  :autosize="{ minRows: 2, maxRows: 4 }"
+                  size="large"
+                  class="w-full font-semibold"
+                />
               </div>
             </template>
             

@@ -8,6 +8,7 @@ const props = defineProps<{
   colorClass: string
   isActive: boolean
   isTaken: boolean
+  note?: string
 }>()
 
 const friendlyTime = computed(() => {
@@ -36,6 +37,9 @@ const friendlyTime = computed(() => {
         <span class="text-white/90 font-bold text-xs flex items-center gap-1.5 uppercase tracking-wide">
           <svg xmlns="http://www.w3.org/2000/svg" class="h-3.5 w-3.5 opacity-80" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="3" stroke-linecap="round" stroke-linejoin="round"><circle cx="12" cy="12" r="10"/><polyline points="12 6 12 12 16 14"/></svg>
           {{ friendlyTime }}
+        </span>
+        <span v-if="isTaken && note" class="text-white/85 font-semibold text-xs mt-1.5 leading-snug normal-case line-clamp-2">
+          {{ note }}
         </span>
       </div>
 
