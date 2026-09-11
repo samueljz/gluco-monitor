@@ -26,10 +26,12 @@ ChartJS.register(
 )
 
 interface Reading {
+  type: 'glucose' | 'snack';
   value: number;
   timestamp: number;
   slotId: string;
   dateStr: string;
+  note?: string;
 }
 
 const allReadings = ref<Reading[]>([])
@@ -102,12 +104,22 @@ function loadData() {
       const data = JSON.parse(localStorage.getItem(key) || '{}')
       Object.keys(data).forEach(slotId => {
         const item = data[slotId]
-        if (item.value > 0) { // Only log actual readings, not snacks
+        if (item.value > 0) {
           readings.push({
+            type: 'glucose',
             value: item.value,
             timestamp: item.timestamp,
             slotId: slotId,
             dateStr: dateStr
+          })
+        } else if (item.value === 0 && item.note) {
+          readings.push({
+            type: 'snack',
+            value: 0,
+            timestamp: item.timestamp,
+            slotId: slotId,
+            dateStr: dateStr,
+            note: item.note
           })
         }
       })
@@ -178,7 +190,8 @@ function formatSlotName(slotId: string) {
           :bordered="false"
           size="small"
         >
-          <div class="flex justify-between items-center px-2 py-1">
+          <!-- Glucose reading -->
+          <div v-if="reading.type === 'glucose'" class="flex justify-between items-center px-2 py-1">
             <div class="flex flex-col">
               <span class="font-bold text-slate-800 dark:text-slate-100 text-[16px]">{{ formatSlotName(reading.slotId) }}</span>
               <div class="text-xs font-semibold text-slate-500 dark:text-slate-400 mt-1 flex items-center gap-2">
@@ -195,6 +208,17 @@ function formatSlotName(slotId: string) {
               ]">{{ reading.value.toFixed(1) }}</span>
               <span class="text-[9px] font-bold text-slate-400 uppercase tracking-widest">mmol/L</span>
             </div>
+          </div>
+
+          <!-- Snack entry -->
+          <div v-else class="px-2 py-1">
+            <span class="font-bold text-slate-800 dark:text-slate-100 text-[16px]">{{ formatSlotName(reading.slotId) }}</span>
+            <div class="text-xs font-semibold text-slate-500 dark:text-slate-400 mt-1 flex items-center gap-2">
+              <span>{{ reading.dateStr }}</span>
+              <span class="w-1 h-1 rounded-full bg-slate-300 dark:bg-slate-600"></span>
+              <span>{{ formatFriendlyTime(reading.timestamp) }}</span>
+            </div>
+            <p v-if="reading.note" class="text-sm text-slate-700 dark:text-slate-300 mt-2 whitespace-pre-line leading-snug">{{ reading.note }}</p>
           </div>
         </n-card>
       </div>
