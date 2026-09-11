@@ -1,5 +1,5 @@
 <script setup lang="ts">
-import { ref, onMounted, computed } from 'vue'
+import { ref, onMounted } from 'vue'
 import { NCard, NEmpty, NSpin } from 'naive-ui'
 import { Line } from 'vue-chartjs'
 import {
@@ -33,7 +33,6 @@ interface Reading {
 }
 
 const allReadings = ref<Reading[]>([])
-const displayedReadings = ref<Reading[]>([])
 const chartData = ref({
   labels: [] as string[],
   datasets: [{
@@ -68,25 +67,9 @@ const chartOptions = {
 }
 
 const isLoading = ref(true)
-const observerTarget = ref<HTMLElement | null>(null)
-const itemsPerPage = 10
-let currentPage = 1
 
 onMounted(() => {
   loadData()
-  
-  const observer = new IntersectionObserver((entries) => {
-    if (entries[0]?.isIntersecting) {
-      loadMore()
-    }
-  }, {
-    rootMargin: '100px',
-    threshold: 0.1
-  })
-  
-  if (observerTarget.value) {
-    observer.observe(observerTarget.value)
-  }
 })
 
 function getDaysArray(numDays: number) {
@@ -137,9 +120,6 @@ function loadData() {
   readings.sort((a, b) => b.timestamp - a.timestamp)
   allReadings.value = readings
   
-  // Load initial page
-  displayedReadings.value = readings.slice(0, itemsPerPage)
-  
   // Prepare chart data (Recent 2 days)
   const recentDays = getDaysArray(2)
   const graphReadings = readings
@@ -153,14 +133,6 @@ function loadData() {
   chartData.value.datasets[0]!.data = graphReadings.map(r => r.value)
   
   isLoading.value = false
-}
-
-function loadMore() {
-  if (displayedReadings.value.length < allReadings.value.length) {
-    const nextItems = allReadings.value.slice(currentPage * itemsPerPage, (currentPage + 1) * itemsPerPage)
-    displayedReadings.value.push(...nextItems)
-    currentPage++
-  }
 }
 
 function formatFriendlyTime(ts: number) {
@@ -200,7 +172,7 @@ function formatSlotName(slotId: string) {
       
       <div v-else class="flex flex-col gap-3">
         <n-card 
-          v-for="(reading, i) in displayedReadings" 
+          v-for="(reading, i) in allReadings" 
           :key="i"
           class="w-full rounded-2xl shadow-sm border-0 bg-white dark:bg-slate-800"
           :bordered="false"
@@ -225,12 +197,6 @@ function formatSlotName(slotId: string) {
             </div>
           </div>
         </n-card>
-        
-        <!-- Observer target for lazy loading -->
-        <div ref="observerTarget" class="h-10 w-full flex justify-center items-center">
-           <n-spin v-if="displayedReadings.length < allReadings.length" size="small" />
-           <span v-else class="text-xs text-slate-400 font-semibold mb-4 mt-2">No more readings</span>
-        </div>
       </div>
     </template>
   </div>
