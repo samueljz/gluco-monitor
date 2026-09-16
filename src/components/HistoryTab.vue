@@ -112,7 +112,7 @@ function loadData() {
             slotId: slotId,
             dateStr: dateStr
           })
-        } else if (item.value === 0 && item.note) {
+        } else if (item.value === 0 && item.timestamp) {
           readings.push({
             type: 'snack',
             value: 0,
