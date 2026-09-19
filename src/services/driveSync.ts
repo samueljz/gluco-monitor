@@ -22,6 +22,7 @@ export const needsReauth = ref(false)
 let tokenClient: any = null
 let pendingRefreshPromise: Promise<boolean> | null = null
 let refreshLoopHandle: number | null = null
+let oauthState: string = crypto.randomUUID()
 
 // Proactively renew the token well before it expires so a real sync call
 // never has to block on a just-in-time silent refresh.
@@ -104,6 +105,7 @@ export async function ensureValidToken(): Promise<boolean> {
     try {
       tokenClient.requestAccessToken({
         prompt: '',
+        state: oauthState,
         callback: (response: any) => {
           clearTimeout(timeout)
           if (response && !response.error) {
@@ -149,6 +151,13 @@ export function initGoogleApi() {
         if (tokenResponse.error !== undefined) {
           throw tokenResponse
         }
+        // Validate state to prevent CSRF attacks — always enforced
+        if (tokenResponse.state !== oauthState) {
+          console.error('OAuth state mismatch — possible CSRF attack, ignoring response')
+          return
+        }
+        // Rotate state after each successful response
+        oauthState = crypto.randomUUID()
         saveTokenResponse(tokenResponse)
         isSignedIn.value = true
         syncData(true) // Automatically sync on login and prompt
@@ -189,9 +198,9 @@ export function handleAuthClick() {
   // actually failed (or we've never authenticated). Otherwise try silently
   // first so the user isn't interrupted for a routine expiry.
   if (!currentToken || needsReauth.value) {
-    tokenClient.requestAccessToken({ prompt: 'consent' })
+    tokenClient.requestAccessToken({ prompt: 'consent', state: oauthState })
   } else {
-    tokenClient.requestAccessToken({ prompt: '' })
+    tokenClient.requestAccessToken({ prompt: '', state: oauthState })
   }
 }
 
