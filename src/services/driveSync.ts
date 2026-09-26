@@ -3,6 +3,10 @@
 /// <reference types="google.accounts" />
 
 import { ref } from 'vue'
+import { loadGoogleScripts } from '../utils/googleScriptLoader'
+import { hasAccessToken, isScheduleSlotArray, isStoredReadingMap, isThemeValue } from '../utils/guards'
+
+type GoogleTokenResponse = google.accounts.oauth2.TokenResponse
 
 const CLIENT_ID = import.meta.env.VITE_GOOGLE_CLIENT_ID || ''
 const DISCOVERY_DOC = 'https://www.googleapis.com/discovery/v1/apis/drive/v3/rest'
@@ -10,6 +14,9 @@ const SCOPES = 'https://www.googleapis.com/auth/drive.file'
 const FILE_NAME = 'GlucoMonitorBackup.json'
 const TOKEN_KEY = 'gdm_google_token'
 const TOKEN_EXPIRY_KEY = 'gdm_token_expires_at'
+const SCHEDULE_KEY_PREFIX = 'gdm_schedule_'
+const READINGS_KEY_PREFIX = 'gdm_readings_'
+const THEME_KEY = 'gdm_theme'
 
 export const isGapiLoaded = ref(false)
 export const isSignedIn = ref(false)
@@ -19,7 +26,7 @@ export const syncError = ref<string | null>(null)
 // the user must click through a visible Google consent prompt to continue.
 export const needsReauth = ref(false)
 
-let tokenClient: any = null
+let tokenClient: google.accounts.oauth2.TokenClient | null = null
 let pendingRefreshPromise: Promise<boolean> | null = null
 let refreshLoopHandle: number | null = null
 let oauthState: string = crypto.randomUUID()
@@ -29,11 +36,11 @@ let oauthState: string = crypto.randomUUID()
 const PROACTIVE_REFRESH_WINDOW_MS = 5 * 60 * 1000
 const REFRESH_LOOP_INTERVAL_MS = 60 * 1000
 
-function saveTokenResponse(tokenResponse: any) {
+function saveTokenResponse(tokenResponse: GoogleTokenResponse) {
   const expiresInSeconds = Number(tokenResponse.expires_in) || 3600
   // Subtract 120 seconds as a safety margin
   const expiresAt = Date.now() + Math.max(expiresInSeconds - 120, 60) * 1000
-  
+
   localStorage.setItem(TOKEN_KEY, JSON.stringify(tokenResponse))
   localStorage.setItem(TOKEN_EXPIRY_KEY, expiresAt.toString())
 
@@ -66,7 +73,7 @@ export async function ensureValidToken(): Promise<boolean> {
     if (savedToken) {
       try {
         const parsed = JSON.parse(savedToken)
-        if (parsed?.access_token && window.gapi && gapi.client) {
+        if (hasAccessToken(parsed) && window.gapi && gapi.client) {
           gapi.client.setToken(parsed)
           return true
         }
@@ -81,7 +88,8 @@ export async function ensureValidToken(): Promise<boolean> {
     return pendingRefreshPromise
   }
 
-  if (!tokenClient) {
+  const client = tokenClient
+  if (!client) {
     return false
   }
 
@@ -102,23 +110,32 @@ export async function ensureValidToken(): Promise<boolean> {
 
     const timeout = setTimeout(() => finish(false), 5000)
 
+    // `callback` isn't part of the ambient OverridableTokenClientConfig type,
+    // but Google's Identity Services runtime does honor a per-call override
+    // here (a documented-in-practice, if not officially typed, way to give a
+    // silent refresh its own callback distinct from the one registered in
+    // initTokenClient).
+    const overrideConfig: google.accounts.oauth2.OverridableTokenClientConfig & {
+      callback: (response: GoogleTokenResponse) => void
+    } = {
+      prompt: '',
+      state: oauthState,
+      callback: (response) => {
+        clearTimeout(timeout)
+        if (response && !response.error) {
+          saveTokenResponse(response)
+          isSignedIn.value = true
+          finish(true)
+        } else {
+          console.warn('Silent token refresh failed:', response?.error)
+          finish(false)
+        }
+      },
+    }
+
     try {
-      tokenClient.requestAccessToken({
-        prompt: '',
-        state: oauthState,
-        callback: (response: any) => {
-          clearTimeout(timeout)
-          if (response && !response.error) {
-            saveTokenResponse(response)
-            isSignedIn.value = true
-            finish(true)
-          } else {
-            console.warn('Silent token refresh failed:', response?.error)
-            finish(false)
-          }
-        },
-      })
-    } catch (err) {
+      client.requestAccessToken(overrideConfig)
+    } catch {
       clearTimeout(timeout)
       finish(false)
     }
@@ -139,15 +156,17 @@ function startProactiveRefreshLoop() {
   }, REFRESH_LOOP_INTERVAL_MS)
 }
 
-export function initGoogleApi() {
+export async function initGoogleApi() {
   if (!CLIENT_ID) return
+
+  await loadGoogleScripts()
 
   // Load identity services
   if (window.google) {
     tokenClient = google.accounts.oauth2.initTokenClient({
       client_id: CLIENT_ID,
       scope: SCOPES,
-      callback: (tokenResponse: any) => {
+      callback: (tokenResponse: GoogleTokenResponse) => {
         if (tokenResponse.error !== undefined) {
           throw tokenResponse
         }
@@ -172,7 +191,7 @@ export function initGoogleApi() {
         discoveryDocs: [DISCOVERY_DOC],
       })
       isGapiLoaded.value = true
-      
+
       const savedToken = localStorage.getItem(TOKEN_KEY)
       if (savedToken) {
         isSignedIn.value = true
@@ -189,7 +208,7 @@ export function initGoogleApi() {
 
 export function handleAuthClick() {
   if (!tokenClient) {
-    alert("Google Client ID is missing! Please configure VITE_GOOGLE_CLIENT_ID in your .env file.")
+    syncError.value = 'Google Client ID is missing. Configure VITE_GOOGLE_CLIENT_ID in your .env file.'
     return
   }
   syncError.value = null
@@ -239,104 +258,122 @@ async function findBackupFile(): Promise<string | null> {
 }
 
 let syncTimeout: number | null = null
+let syncQueued = false
 
 export function syncData(promptUser: boolean = false) {
   if (syncTimeout) window.clearTimeout(syncTimeout)
-  syncTimeout = window.setTimeout(async () => {
-    if (!isSignedIn.value) return
+  syncTimeout = window.setTimeout(() => runSync(promptUser), 1000)
+}
 
-    const tokenValid = await ensureValidToken()
-    if (!tokenValid) {
-      console.warn('Cannot sync: Google authentication token is expired or unavailable.')
-      syncError.value = 'Auth session expired'
-      return
+// Guards against overlapping sync runs: if a sync is already in flight when
+// another is requested, we don't start a second one (which could interleave
+// two Drive read/patch cycles on the same file) — we just remember to run
+// once more right after the current one finishes.
+async function runSync(promptUser: boolean) {
+  if (isSyncing.value) {
+    syncQueued = true
+    return
+  }
+
+  if (!isSignedIn.value) return
+
+  const tokenValid = await ensureValidToken()
+  if (!tokenValid) {
+    console.warn('Cannot sync: Google authentication token is expired or unavailable.')
+    syncError.value = 'Auth session expired'
+    return
+  }
+
+  isSyncing.value = true
+  syncError.value = null
+
+  try {
+    const fileId = await findBackupFile()
+    const currentToken = gapi.client.getToken()?.access_token
+    if (!currentToken) throw new Error('Missing access token')
+
+    // Gather all local storage data, excluding token credentials
+    const appData: Record<string, unknown> = {}
+    for (let i = 0; i < localStorage.length; i++) {
+      const key = localStorage.key(i)
+      if (key && key.startsWith('gdm_') && key !== TOKEN_KEY && key !== TOKEN_EXPIRY_KEY) {
+        try {
+          appData[key] = JSON.parse(localStorage.getItem(key) || 'null')
+        } catch {
+          appData[key] = localStorage.getItem(key)
+        }
+      }
     }
 
-    isSyncing.value = true
-    syncError.value = null
+    const fileContent = JSON.stringify(appData)
+    const file = new Blob([fileContent], { type: 'application/json' })
+    const metadata = {
+      name: FILE_NAME,
+      mimeType: 'application/json',
+    }
 
-    try {
-      const fileId = await findBackupFile()
-      const currentToken = gapi.client.getToken()?.access_token
-      if (!currentToken) throw new Error('Missing access token')
-      
-      // Gather all local storage data, excluding token credentials
-      const appData: Record<string, any> = {}
-      for (let i = 0; i < localStorage.length; i++) {
-        const key = localStorage.key(i)
-        if (key && key.startsWith('gdm_') && key !== TOKEN_KEY && key !== TOKEN_EXPIRY_KEY) {
-          try {
-            appData[key] = JSON.parse(localStorage.getItem(key) || 'null')
-          } catch {
-            appData[key] = localStorage.getItem(key)
-          }
+    const form = new FormData()
+    form.append('metadata', new Blob([JSON.stringify(metadata)], { type: 'application/json' }))
+    form.append('file', file)
+
+    if (fileId) {
+      const remoteData = await downloadFile(fileId)
+      if (remoteData) {
+        let prioritizeRemote = true
+        if (promptUser) {
+          prioritizeRemote = window.confirm('Do you want to overwrite your local data with the backup from Google Drive?\n\nClick OK to overwrite local data.\nClick Cancel to keep local data and merge.')
+        } else {
+          prioritizeRemote = false
         }
-      }
 
-      const fileContent = JSON.stringify(appData)
-      const file = new Blob([fileContent], { type: 'application/json' })
-      const metadata = {
-        name: FILE_NAME,
-        mimeType: 'application/json',
-      }
+        mergeData(remoteData, appData, prioritizeRemote)
 
-      const form = new FormData()
-      form.append('metadata', new Blob([JSON.stringify(metadata)], { type: 'application/json' }))
-      form.append('file', file)
+        // Re-upload merged data
+        const mergedContent = JSON.stringify(appData)
+        const mergedFile = new Blob([mergedContent], { type: 'application/json' })
+        const mergedForm = new FormData()
+        mergedForm.append('metadata', new Blob([JSON.stringify(metadata)], { type: 'application/json' }))
+        mergedForm.append('file', mergedFile)
 
-      if (fileId) {
-        const remoteData = await downloadFile(fileId)
-        if (remoteData) {
-          let prioritizeRemote = true
-          if (promptUser) {
-            prioritizeRemote = window.confirm('Do you want to overwrite your local data with the backup from Google Drive?\n\nClick OK to overwrite local data.\nClick Cancel to keep local data and merge.')
-          } else {
-            prioritizeRemote = false
-          }
-          
-          mergeData(remoteData, appData, prioritizeRemote)
-          
-          // Re-upload merged data
-          const mergedContent = JSON.stringify(appData)
-          const mergedFile = new Blob([mergedContent], { type: 'application/json' })
-          const mergedForm = new FormData()
-          mergedForm.append('metadata', new Blob([JSON.stringify(metadata)], { type: 'application/json' }))
-          mergedForm.append('file', mergedFile)
-          
-          const patchRes = await fetch(`https://www.googleapis.com/upload/drive/v3/files/${fileId}?uploadType=multipart`, {
-            method: 'PATCH',
-            headers: {
-              Authorization: `Bearer ${currentToken}`,
-            },
-            body: mergedForm,
-          })
-          if (!patchRes.ok) throw new Error(`Patch failed with status: ${patchRes.status}`)
-        }
-      } else {
-        // Create new file
-        const postRes = await fetch('https://www.googleapis.com/upload/drive/v3/files?uploadType=multipart', {
-          method: 'POST',
+        const patchRes = await fetch(`https://www.googleapis.com/upload/drive/v3/files/${fileId}?uploadType=multipart`, {
+          method: 'PATCH',
           headers: {
             Authorization: `Bearer ${currentToken}`,
           },
-          body: form,
+          body: mergedForm,
         })
-        if (!postRes.ok) throw new Error(`Create failed with status: ${postRes.status}`)
+        if (!patchRes.ok) throw new Error(`Patch failed with status: ${patchRes.status}`)
       }
-      syncError.value = null
-    } catch (err: any) {
-      console.error('Sync failed', err)
-      syncError.value = err?.message || 'Sync failed'
-      if (err?.status === 401 || err?.message?.includes('401')) {
-        handleSignoutClick()
-      }
-    } finally {
-      isSyncing.value = false
+    } else {
+      // Create new file
+      const postRes = await fetch('https://www.googleapis.com/upload/drive/v3/files?uploadType=multipart', {
+        method: 'POST',
+        headers: {
+          Authorization: `Bearer ${currentToken}`,
+        },
+        body: form,
+      })
+      if (!postRes.ok) throw new Error(`Create failed with status: ${postRes.status}`)
     }
-  }, 1000)
+    syncError.value = null
+  } catch (err) {
+    console.error('Sync failed', err)
+    const message = err instanceof Error ? err.message : undefined
+    syncError.value = message || 'Sync failed'
+    const status = err && typeof err === 'object' && 'status' in err ? (err as { status: unknown }).status : undefined
+    if (status === 401 || message?.includes('401')) {
+      handleSignoutClick()
+    }
+  } finally {
+    isSyncing.value = false
+    if (syncQueued) {
+      syncQueued = false
+      runSync(false)
+    }
+  }
 }
 
-async function downloadFile(fileId: string): Promise<Record<string, any> | null> {
+async function downloadFile(fileId: string): Promise<Record<string, unknown> | null> {
   try {
     const response = await gapi.client.drive.files.get({
       fileId: fileId,
@@ -345,22 +382,63 @@ async function downloadFile(fileId: string): Promise<Record<string, any> | null>
     if (typeof response.result === 'string') {
       return JSON.parse(response.result)
     }
-    return response.result || null
+    // gapi's types describe files.get()'s result as Drive File metadata,
+    // but with alt: 'media' it's actually the raw file body we requested.
+    return (response.result as unknown as Record<string, unknown>) || null
   } catch (err) {
     console.error('Failed to download or parse remote backup', err)
     return null
   }
 }
 
-function mergeData(remote: Record<string, any>, local: Record<string, any>, prioritizeRemote: boolean) {
+function isValidGdmValue(key: string, value: unknown): boolean {
+  if (key === THEME_KEY) return isThemeValue(value)
+  if (key.startsWith(SCHEDULE_KEY_PREFIX)) return isScheduleSlotArray(value)
+  if (key.startsWith(READINGS_KEY_PREFIX)) return isStoredReadingMap(value)
+  // Unknown/future keys: we can't validate a shape we don't know, so accept
+  // them as-is rather than silently dropping forward-compatible data.
+  return true
+}
+
+// Pure merge decision: for each recognized, shape-valid gdm_ key in the
+// remote backup, decide whether it should overwrite the local value.
+// Malformed remote values (e.g. a corrupted or tampered backup file) are
+// skipped instead of corrupting local state.
+export function computeMerge(
+  remote: Record<string, unknown>,
+  local: Record<string, unknown>,
+  prioritizeRemote: boolean
+): { merged: Record<string, unknown>; changedKeys: string[] } {
+  const merged = { ...local }
+  const changedKeys: string[] = []
+
   for (const key of Object.keys(remote)) {
-    if (key.startsWith('gdm_') && key !== TOKEN_KEY && key !== TOKEN_EXPIRY_KEY) {
-      if (prioritizeRemote || !(key in local)) {
-        const val = typeof remote[key] === 'object' ? JSON.stringify(remote[key]) : remote[key]
-        localStorage.setItem(key, val)
-        local[key] = remote[key]
-      }
+    if (!key.startsWith('gdm_') || key === TOKEN_KEY || key === TOKEN_EXPIRY_KEY) continue
+
+    const value = remote[key]
+    if (!isValidGdmValue(key, value)) {
+      console.warn(`Skipping malformed remote backup key "${key}"`)
+      continue
+    }
+
+    if (prioritizeRemote || !(key in local)) {
+      merged[key] = value
+      changedKeys.push(key)
     }
   }
+
+  return { merged, changedKeys }
+}
+
+function mergeData(remote: Record<string, unknown>, local: Record<string, unknown>, prioritizeRemote: boolean) {
+  const { merged, changedKeys } = computeMerge(remote, local, prioritizeRemote)
+
+  for (const key of changedKeys) {
+    const value = merged[key]
+    const raw = typeof value === 'object' ? JSON.stringify(value) : String(value)
+    localStorage.setItem(key, raw)
+    local[key] = value
+  }
+
   window.dispatchEvent(new CustomEvent('gdm_sync_complete'))
 }
