@@ -118,26 +118,16 @@ const {
   uncheckSnack,
 } = useEditModal(schedule, todayReadings, saveSchedule, persistReadings, scrollToActive)
 
+// The card to focus: the first slot that's due now, otherwise the next
+// upcoming unlogged slot, otherwise the last slot of the day. (isSlotDue
+// already covers every unlogged slot whose time has passed, so any unlogged
+// slot left for the second search is necessarily still in the future.)
 const targetSlotIndex = computed(() => {
-  const currentMins = currentMinutes.value
-  for (let i = 0; i < schedule.value.length; i++) {
-    const slot = schedule.value[i]
-    if (slot && isSlotDue(slot, currentMins)) return i;
-  }
-  for (let i = 0; i < schedule.value.length; i++) {
-    const slot = schedule.value[i]
-    if (!slot) continue;
-    if (slot.requiresReading && todayReadings.value[slot.id]) continue;
-    if (!slot.requiresReading && todayReadings.value[slot.id]) continue;
-
-    if (!slot.requiresReading) {
-      const [hours = 0, mins = 0] = slot.time.split(':').map(Number)
-      const slotMins = hours * 60 + mins
-      if (currentMins > slotMins + 45) continue;
-    }
-    return i;
-  }
-  return schedule.value.length - 1;
+  const slots = schedule.value
+  const dueIndex = slots.findIndex(slot => isSlotDue(slot, currentMinutes.value))
+  if (dueIndex !== -1) return dueIndex
+  const nextIndex = slots.findIndex(slot => !todayReadings.value[slot.id])
+  return nextIndex !== -1 ? nextIndex : slots.length - 1
 })
 
 const dropdownOptions = computed(() => [
