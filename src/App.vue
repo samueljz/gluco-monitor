@@ -1,5 +1,5 @@
 <script setup lang="ts">
-import { computed, onMounted } from 'vue'
+import { computed, onMounted, onUnmounted } from 'vue'
 import {
   NConfigProvider,
   NCard,
@@ -24,7 +24,7 @@ import { useReadings } from './composables/useReadings'
 import { useNotifications } from './composables/useNotifications'
 import { useEditModal } from './composables/useEditModal'
 
-const { isDarkMode, toggleTheme } = useTheme()
+const { isDarkMode, loadTheme, toggleTheme } = useTheme()
 
 // Custom Theme
 const themeOverrides = computed<GlobalThemeOverrides>(() => ({
@@ -166,13 +166,16 @@ function handleDropdownSelect(key: string) {
   }
 }
 
+function handleSyncComplete() {
+  loadSchedule()
+  loadTodayReadings()
+  loadTheme()
+}
+
 onMounted(() => {
   migrateStorage()
 
-  window.addEventListener('gdm_sync_complete', () => {
-    loadSchedule()
-    loadTodayReadings()
-  })
+  window.addEventListener('gdm_sync_complete', handleSyncComplete)
 
   loadSchedule()
   loadTodayReadings()
@@ -180,6 +183,10 @@ onMounted(() => {
   initGoogleApi()
 
   setTimeout(() => scrollToActive(), 300)
+})
+
+onUnmounted(() => {
+  window.removeEventListener('gdm_sync_complete', handleSyncComplete)
 })
 </script>
 
