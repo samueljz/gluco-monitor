@@ -1,10 +1,24 @@
 import { computed, onScopeDispose, ref } from 'vue'
 
-export function useClock() {
+export type ClockResolution = 'second' | 'minute'
+
+// `resolution: 'minute'` still polls every second (so minute changes are
+// picked up promptly) but only updates the reactive `now` when the minute
+// actually changes, so consumers don't re-render once per second.
+export function useClock(resolution: ClockResolution = 'second') {
   const now = ref(new Date())
 
   const timer = window.setInterval(() => {
-    now.value = new Date()
+    const next = new Date()
+    if (
+      resolution === 'minute' &&
+      next.getMinutes() === now.value.getMinutes() &&
+      next.getHours() === now.value.getHours() &&
+      next.getDate() === now.value.getDate()
+    ) {
+      return
+    }
+    now.value = next
   }, 1000)
 
   onScopeDispose(() => window.clearInterval(timer))

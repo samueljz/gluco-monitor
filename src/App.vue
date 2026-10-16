@@ -15,6 +15,7 @@ import type { GlobalThemeOverrides } from 'naive-ui'
 import HistoryTab from './components/HistoryTab.vue'
 import BloodSugarCard from './components/BloodSugarCard.vue'
 import SnackCard from './components/SnackCard.vue'
+import ClockDisplay from './components/ClockDisplay.vue'
 import {
   syncData,
   isSignedIn,
@@ -58,7 +59,7 @@ const themeOverrides = computed<GlobalThemeOverrides>(() => ({
   }
 }))
 
-const { now, timeParts, dateString, currentMinutes } = useClock()
+const { now, dateString, currentMinutes } = useClock('minute')
 const { todayReadings, currentDateString, loadTodayReadings, persistReadings, isSlotDue } = useReadings(now)
 const { schedule, loadSchedule, saveSchedule } = useSchedule(currentDateString)
 const { notificationPermission, requestNotification } = useNotifications(schedule, currentMinutes, isSlotDue)
@@ -352,18 +353,7 @@ onUnmounted(() => {
       </div>
 
       <!-- Clock (Consistent Flow) -->
-      <div class="px-6 pb-6 pt-2 shrink-0 flex flex-col items-center justify-center relative z-20">
-        <div class="flex items-baseline">
-          <span
-            class="text-[72px] font-black tabular-nums tracking-tighter drop-shadow-sm leading-none"
-            :class="isDarkMode ? 'text-white' : 'text-slate-800'"
-          >{{ timeParts.time }}</span>
-          <span
-            class="text-xl font-bold ml-2"
-            :class="isDarkMode ? 'text-slate-500' : 'text-slate-400'"
-          >{{ timeParts.ampm }}</span>
-        </div>
-      </div>
+      <ClockDisplay />
 
       <!-- Tabs Area -->
       <div class="flex-1 min-h-0 w-full flex flex-col relative z-10 overflow-hidden">
