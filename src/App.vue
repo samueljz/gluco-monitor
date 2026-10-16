@@ -316,6 +316,7 @@ onUnmounted(() => {
           @select="handleDropdownSelect"
         >
           <button
+            aria-label="Menu"
             class="w-10 h-10 rounded-full flex items-center justify-center transition-colors shadow-sm shrink-0"
             :class="isDarkMode ? 'bg-slate-800 text-slate-300 hover:bg-slate-700' : 'bg-white text-slate-600 hover:bg-slate-100'"
           >
@@ -459,6 +460,7 @@ onUnmounted(() => {
                 <div class="flex items-center gap-3 bg-slate-100 dark:bg-slate-800 rounded-2xl px-3 py-2.5">
                   <button
                     type="button"
+                    aria-label="Decrease reading"
                     class="shrink-0 w-12 h-12 rounded-xl bg-white dark:bg-slate-700 shadow-sm active:scale-95 transition-transform flex items-center justify-center text-2xl font-black text-slate-600 dark:text-slate-200"
                     @click="adjustReading(-0.1)"
                   >
@@ -478,6 +480,7 @@ onUnmounted(() => {
                   </div>
                   <button
                     type="button"
+                    aria-label="Increase reading"
                     class="shrink-0 w-12 h-12 rounded-xl bg-white dark:bg-slate-700 shadow-sm active:scale-95 transition-transform flex items-center justify-center text-2xl font-black text-slate-600 dark:text-slate-200"
                     @click="adjustReading(0.1)"
                   >
