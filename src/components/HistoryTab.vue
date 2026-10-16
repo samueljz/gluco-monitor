@@ -4,6 +4,7 @@ import { NCard, NEmpty, NSpin } from 'naive-ui'
 import { Line } from 'vue-chartjs'
 import { readJSON } from '../utils/storage'
 import { isStoredReadingMap } from '../utils/guards'
+import { formatDateYYYYMMDD, formatSlotName, formatTimestampTo12 } from '../utils/format'
 import {
   Chart as ChartJS,
   CategoryScale,
@@ -87,8 +88,7 @@ function getDaysArray(numDays: number) {
   for (let i = 0; i < numDays; i++) {
     const d = new Date(today)
     d.setDate(d.getDate() - i)
-    const dateStr = `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, '0')}-${String(d.getDate()).padStart(2, '0')}`
-    arr.push(dateStr)
+    arr.push(formatDateYYYYMMDD(d))
   }
   return arr
 }
@@ -160,19 +160,6 @@ function loadData() {
   
   isLoading.value = false
 }
-
-function formatFriendlyTime(ts: number) {
-  const d = new Date(ts)
-  let h = d.getHours()
-  const m = String(d.getMinutes()).padStart(2, '0')
-  const ampm = h >= 12 ? 'PM' : 'AM'
-  h = h % 12 || 12
-  return `${h}:${m} ${ampm}`
-}
-
-function formatSlotName(slotId: string) {
-  return slotId.split('_').map(w => w.charAt(0).toUpperCase() + w.slice(1)).join(' ')
-}
 </script>
 
 <template>
@@ -238,7 +225,7 @@ function formatSlotName(slotId: string) {
               <div class="text-xs font-semibold text-slate-500 dark:text-slate-400 mt-1 flex items-center gap-2">
                 <span>{{ reading.dateStr }}</span>
                 <span class="w-1 h-1 rounded-full bg-slate-300 dark:bg-slate-600" />
-                <span>{{ formatFriendlyTime(reading.timestamp) }}</span>
+                <span>{{ formatTimestampTo12(reading.timestamp) }}</span>
               </div>
             </div>
             
@@ -263,7 +250,7 @@ function formatSlotName(slotId: string) {
             <div class="text-xs font-semibold text-slate-500 dark:text-slate-400 mt-1 flex items-center gap-2">
               <span>{{ reading.dateStr }}</span>
               <span class="w-1 h-1 rounded-full bg-slate-300 dark:bg-slate-600" />
-              <span>{{ formatFriendlyTime(reading.timestamp) }}</span>
+              <span>{{ formatTimestampTo12(reading.timestamp) }}</span>
             </div>
             <p
               v-if="reading.note"
