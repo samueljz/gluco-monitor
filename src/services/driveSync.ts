@@ -32,6 +32,7 @@ let syncPromptResolver: ((prioritizeRemote: boolean) => void) | null = null
 export function resolveSyncPrompt(prioritizeRemote: boolean) {
   showSyncPrompt.value = false
   if (syncPromptResolver) {
+    isSyncing.value = true
     const resolve = syncPromptResolver
     syncPromptResolver = null
     resolve(prioritizeRemote)
@@ -39,6 +40,7 @@ export function resolveSyncPrompt(prioritizeRemote: boolean) {
 }
 
 function requestSyncConflictResolution(): Promise<boolean> {
+  isSyncing.value = false
   showSyncPrompt.value = true
   return new Promise<boolean>((resolve) => {
     syncPromptResolver = resolve
@@ -297,7 +299,7 @@ export function syncData(promptUser: boolean = false) {
 // two Drive read/patch cycles on the same file) — we just remember to run
 // once more right after the current one finishes.
 async function runSync(promptUser: boolean) {
-  if (isSyncing.value) {
+  if (isSyncing.value || showSyncPrompt.value) {
     syncQueued = true
     return
   }
