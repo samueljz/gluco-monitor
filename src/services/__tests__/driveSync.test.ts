@@ -75,6 +75,28 @@ describe('computeMerge', () => {
     expect(changedKeys).toEqual(['gdm_readings_2026_01_01'])
   })
 
+  it('merges missing slot readings for the same day when not prioritizing remote', () => {
+    const remoteDay = {
+      before_breakfast: { value: 5.1, timestamp: 1700000000000 },
+      after_breakfast: { value: 6.4, timestamp: 1700007200000 },
+    }
+    const localDay = {
+      before_breakfast: { value: 5.3, timestamp: 1700000001000 },
+      before_lunch: { value: 4.9, timestamp: 1700014400000 },
+    }
+    const { merged, changedKeys } = computeMerge(
+      { gdm_readings_2026_01_01: remoteDay },
+      { gdm_readings_2026_01_01: localDay },
+      false
+    )
+    expect(merged.gdm_readings_2026_01_01).toEqual({
+      before_breakfast: { value: 5.3, timestamp: 1700000001000 },
+      after_breakfast: { value: 6.4, timestamp: 1700007200000 },
+      before_lunch: { value: 4.9, timestamp: 1700014400000 },
+    })
+    expect(changedKeys).toEqual(['gdm_readings_2026_01_01'])
+  })
+
   it('passes through an unrecognized gdm_ key it has no shape to validate', () => {
     const { merged, changedKeys } = computeMerge(
       { gdm_future_feature: { anything: true } },

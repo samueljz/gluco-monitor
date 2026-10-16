@@ -424,6 +424,17 @@ export function computeMerge(
     if (prioritizeRemote || !(key in local)) {
       merged[key] = value
       changedKeys.push(key)
+    } else if (
+      key.startsWith(READINGS_KEY_PREFIX) &&
+      isStoredReadingMap(value) &&
+      isStoredReadingMap(local[key])
+    ) {
+      const localMap = local[key]
+      const missingRemoteSlots = Object.keys(value).filter(slotId => !(slotId in localMap))
+      if (missingRemoteSlots.length > 0) {
+        merged[key] = { ...value, ...localMap }
+        changedKeys.push(key)
+      }
     }
   }
 
