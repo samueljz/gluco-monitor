@@ -1,5 +1,5 @@
 <script setup lang="ts">
-import { computed, onMounted, onUnmounted } from 'vue'
+import { computed, nextTick, onMounted, onUnmounted, useTemplateRef, type ComponentPublicInstance } from 'vue'
 import {
   NConfigProvider,
   NCard,
@@ -87,20 +87,32 @@ function getSlotColorClass(index: number) {
   return colorPalette[index % colorPalette.length]
 }
 
-function scrollToActive() {
-  const el = document.getElementById('card-' + targetSlotIndex.value)
-  const container = document.getElementById('today-scroll-container')
-  if (el && container) {
-    const elTop = el.offsetTop
-    const containerHeight = container.clientHeight
-    const elHeight = el.clientHeight
-    container.scrollTo({
-      top: elTop - (containerHeight / 2) + (elHeight / 2),
-      behavior: 'smooth'
-    })
-  } else if (el) {
-    el.scrollIntoView({ behavior: 'smooth', block: 'center' })
-  }
+const scrollContainer = useTemplateRef<HTMLElement>('scrollContainer')
+const cardEls = new Map<string, HTMLElement>()
+
+function setCardRef(slotId: string, el: Element | ComponentPublicInstance | null) {
+  if (el instanceof HTMLElement) cardEls.set(slotId, el)
+  else cardEls.delete(slotId)
+}
+
+// Waits for pending DOM updates and a layout frame, then centres the active
+// card inside the Today scroll container.
+async function scrollToActive() {
+  await nextTick()
+  requestAnimationFrame(() => {
+    const slot = schedule.value[targetSlotIndex.value]
+    const el = slot ? cardEls.get(slot.id) : undefined
+    const container = scrollContainer.value
+    if (!el) return
+    if (container) {
+      container.scrollTo({
+        top: el.offsetTop - (container.clientHeight / 2) + (el.clientHeight / 2),
+        behavior: 'smooth'
+      })
+    } else {
+      el.scrollIntoView({ behavior: 'smooth', block: 'center' })
+    }
+  })
 }
 
 const {
@@ -184,7 +196,7 @@ onMounted(() => {
 
   initGoogleApi()
 
-  setTimeout(() => scrollToActive(), 300)
+  scrollToActive()
 })
 
 onUnmounted(() => {
@@ -360,12 +372,12 @@ onUnmounted(() => {
             display-directive="show"
           >
             <div
-              id="today-scroll-container"
+              ref="scrollContainer"
               class="w-full h-full relative overflow-y-auto no-scrollbar px-4 pb-32 pt-2 flex flex-col gap-4 transition-colors duration-500"
             >
               <div
                 v-for="(slot, index) in schedule"
-                :id="'card-' + index"
+                :ref="el => setCardRef(slot.id, el)"
                 :key="slot.id"
                 class="cursor-pointer"
                 @click="openEditModal(slot.id)"
