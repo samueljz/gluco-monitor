@@ -123,6 +123,12 @@ export async function ensureValidToken(): Promise<boolean> {
       callback: (response) => {
         clearTimeout(timeout)
         if (response && !response.error) {
+          if (response.state !== oauthState) {
+            console.error('OAuth state mismatch — possible CSRF attack, ignoring response')
+            finish(false)
+            return
+          }
+          oauthState = crypto.randomUUID()
           saveTokenResponse(response)
           isSignedIn.value = true
           finish(true)
@@ -168,7 +174,9 @@ export async function initGoogleApi() {
       scope: SCOPES,
       callback: (tokenResponse: GoogleTokenResponse) => {
         if (tokenResponse.error !== undefined) {
-          throw tokenResponse
+          console.error('OAuth token error:', tokenResponse.error)
+          syncError.value = tokenResponse.error_description || tokenResponse.error || 'Authentication failed'
+          return
         }
         // Validate state to prevent CSRF attacks — always enforced
         if (tokenResponse.state !== oauthState) {
