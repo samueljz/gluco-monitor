@@ -1,5 +1,5 @@
 <script setup lang="ts">
-import { ref, onMounted } from 'vue'
+import { ref, onMounted, onUnmounted } from 'vue'
 import { NCard, NEmpty, NSpin } from 'naive-ui'
 import { Line } from 'vue-chartjs'
 import { readJSON } from '../utils/storage'
@@ -74,6 +74,11 @@ const isLoading = ref(true)
 
 onMounted(() => {
   loadData()
+  window.addEventListener('gdm_sync_complete', loadData)
+})
+
+onUnmounted(() => {
+  window.removeEventListener('gdm_sync_complete', loadData)
 })
 
 function getDaysArray(numDays: number) {
@@ -98,7 +103,7 @@ function loadData() {
   // Sort keys descending (newest first)
   keys.sort((a, b) => b.localeCompare(a))
   
-  let readings: Reading[] = []
+  const readings: Reading[] = []
   
   keys.forEach(key => {
     const dateStr = key.replace('gdm_readings_', '')
@@ -131,17 +136,27 @@ function loadData() {
   readings.sort((a, b) => b.timestamp - a.timestamp)
   allReadings.value = readings
   
-  // Prepare chart data (Recent 2 days)
+  // Prepare chart data (Recent 2 days, glucose readings only)
   const recentDays = getDaysArray(2)
   const graphReadings = readings
-    .filter(r => recentDays.includes(r.dateStr))
+    .filter(r => r.type === 'glucose' && recentDays.includes(r.dateStr))
     .sort((a, b) => a.timestamp - b.timestamp) // Ascending for graph
   
-  chartData.value.labels = graphReadings.map(r => {
-    const d = new Date(r.timestamp)
-    return `${d.getMonth()+1}/${d.getDate()} ${d.getHours()}:${String(d.getMinutes()).padStart(2, '0')}`
-  })
-  chartData.value.datasets[0]!.data = graphReadings.map(r => r.value)
+  chartData.value = {
+    labels: graphReadings.map(r => {
+      const d = new Date(r.timestamp)
+      return `${d.getMonth() + 1}/${d.getDate()} ${d.getHours()}:${String(d.getMinutes()).padStart(2, '0')}`
+    }),
+    datasets: [{
+      label: 'Glucose Level (mmol/L)',
+      data: graphReadings.map(r => r.value),
+      borderColor: '#3b82f6',
+      backgroundColor: 'rgba(59, 130, 246, 0.1)',
+      borderWidth: 2,
+      tension: 0.3,
+      fill: true,
+    }]
+  }
   
   isLoading.value = false
 }
