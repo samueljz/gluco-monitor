@@ -15,7 +15,18 @@ import type { GlobalThemeOverrides } from 'naive-ui'
 import HistoryTab from './components/HistoryTab.vue'
 import BloodSugarCard from './components/BloodSugarCard.vue'
 import SnackCard from './components/SnackCard.vue'
-import { syncData, isSignedIn, isSyncing, syncError, needsReauth, handleAuthClick, handleSignoutClick, initGoogleApi } from './services/driveSync'
+import {
+  syncData,
+  isSignedIn,
+  isSyncing,
+  syncError,
+  needsReauth,
+  showSyncPrompt,
+  resolveSyncPrompt,
+  handleAuthClick,
+  handleSignoutClick,
+  initGoogleApi
+} from './services/driveSync'
 import { migrateStorage } from './utils/storage'
 import { useTheme } from './composables/useTheme'
 import { useClock } from './composables/useClock'
@@ -575,6 +586,46 @@ onUnmounted(() => {
                   Save
                 </n-button>
               </div>
+            </div>
+          </template>
+        </n-card>
+      </n-modal>
+
+      <!-- Google Drive Sync Conflict Modal -->
+      <n-modal
+        :show="showSyncPrompt"
+        @mask-click="resolveSyncPrompt(false)"
+        @esc="resolveSyncPrompt(false)"
+      >
+        <n-card
+          style="width: 340px; border-radius: 28px;"
+          title="Google Drive Backup Found"
+          :bordered="false"
+          size="huge"
+          role="dialog"
+          aria-modal="true"
+          class="shadow-2xl"
+        >
+          <p class="text-sm text-slate-600 dark:text-slate-300 leading-relaxed">
+            Would you like to overwrite your local data with the backup from Google Drive, or keep your local data and merge missing entries?
+          </p>
+          <template #footer>
+            <div class="flex justify-end gap-3 mt-2">
+              <n-button
+                size="large"
+                class="font-bold"
+                @click="resolveSyncPrompt(false)"
+              >
+                Keep &amp; Merge
+              </n-button>
+              <n-button
+                type="primary"
+                size="large"
+                class="font-bold shadow-md"
+                @click="resolveSyncPrompt(true)"
+              >
+                Restore Backup
+              </n-button>
             </div>
           </template>
         </n-card>

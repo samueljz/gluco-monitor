@@ -25,6 +25,25 @@ export const syncError = ref<string | null>(null)
 // True once silent (popup-free) token renewal has actually failed, meaning
 // the user must click through a visible Google consent prompt to continue.
 export const needsReauth = ref(false)
+export const showSyncPrompt = ref(false)
+
+let syncPromptResolver: ((prioritizeRemote: boolean) => void) | null = null
+
+export function resolveSyncPrompt(prioritizeRemote: boolean) {
+  showSyncPrompt.value = false
+  if (syncPromptResolver) {
+    const resolve = syncPromptResolver
+    syncPromptResolver = null
+    resolve(prioritizeRemote)
+  }
+}
+
+function requestSyncConflictResolution(): Promise<boolean> {
+  showSyncPrompt.value = true
+  return new Promise<boolean>((resolve) => {
+    syncPromptResolver = resolve
+  })
+}
 
 let tokenClient: google.accounts.oauth2.TokenClient | null = null
 let pendingRefreshPromise: Promise<boolean> | null = null
@@ -327,11 +346,9 @@ async function runSync(promptUser: boolean) {
     if (fileId) {
       const remoteData = await downloadFile(fileId)
       if (remoteData) {
-        let prioritizeRemote = true
+        let prioritizeRemote = false
         if (promptUser) {
-          prioritizeRemote = window.confirm('Do you want to overwrite your local data with the backup from Google Drive?\n\nClick OK to overwrite local data.\nClick Cancel to keep local data and merge.')
-        } else {
-          prioritizeRemote = false
+          prioritizeRemote = await requestSyncConflictResolution()
         }
 
         mergeData(remoteData, appData, prioritizeRemote)
