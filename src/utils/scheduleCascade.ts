@@ -3,9 +3,12 @@ import { SCHEDULE_RULES } from '../constants/schedule'
 import type { StoredReadingMap } from '../types'
 import { timeStringToMinutes } from './dueStatus'
 
+const MAX_MINUTES_OF_DAY = 23 * 60 + 59
+
 function minutesToTimeString(mins: number): string {
-  const h = Math.floor(mins / 60) % 24
-  const m = mins % 60
+  const clamped = Math.min(Math.max(0, mins), MAX_MINUTES_OF_DAY)
+  const h = Math.floor(clamped / 60)
+  const m = clamped % 60
   return `${h.toString().padStart(2, '0')}:${m.toString().padStart(2, '0')}`
 }
 

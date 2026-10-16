@@ -58,6 +58,16 @@ describe('applyCascade', () => {
       defaultSchedule.find(s => s.id === 'morning_snack')?.time
     )
   })
+
+  it('clamps cascaded times at 23:59 instead of wrapping past midnight', () => {
+    const readings: StoredReadingMap = {
+      dinner: { value: 0, timestamp: timestampAt(21, 30) },
+    }
+    const next = applyCascade(defaultSchedule, readings)
+    // dinner (21:30) + 180m would be 24:30; should clamp to 23:59 instead of 00:30
+    expect(next.find(s => s.id === 'before_bedtime')?.time).toBe('23:59')
+    expect(next.find(s => s.id === 'bedtime_snack')?.time).toBe('23:59')
+  })
 })
 
 describe('validateProposedTime', () => {
