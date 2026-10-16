@@ -48,8 +48,8 @@ const themeOverrides = computed<GlobalThemeOverrides>(() => ({
 }))
 
 const { now, timeParts, dateString, currentMinutes } = useClock()
-const { schedule, loadSchedule, saveSchedule } = useSchedule()
-const { todayReadings, loadTodayReadings, persistReadings, isSlotDue } = useReadings(now)
+const { todayReadings, currentDateString, loadTodayReadings, persistReadings, isSlotDue } = useReadings(now)
+const { schedule, loadSchedule, saveSchedule } = useSchedule(currentDateString)
 const { notificationPermission, requestNotification } = useNotifications(now, schedule, currentMinutes, isSlotDue)
 
 const colorPalette = [

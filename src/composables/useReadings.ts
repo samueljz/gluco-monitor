@@ -1,4 +1,4 @@
-import { ref, type Ref } from 'vue'
+import { computed, ref, watch, type Ref } from 'vue'
 import type { ScheduleSlot } from '../constants/schedule'
 import type { StoredReadingMap } from '../types'
 import { readJSON, writeJSON } from '../utils/storage'
@@ -7,7 +7,7 @@ import { isSlotDue as isSlotDuePure } from '../utils/dueStatus'
 import { getActualMins as getActualMinsPure } from '../utils/scheduleCascade'
 import { syncData } from '../services/driveSync'
 
-function getDateString(d: Date): string {
+export function getDateString(d: Date): string {
   return `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, '0')}-${String(d.getDate()).padStart(2, '0')}`
 }
 
@@ -17,15 +17,20 @@ function readingsKey(dateStr: string): string {
 
 export function useReadings(now: Ref<Date>) {
   const todayReadings = ref<StoredReadingMap>({})
+  const currentDateString = computed(() => getDateString(now.value))
 
   function loadTodayReadings() {
-    todayReadings.value = readJSON(readingsKey(getDateString(now.value)), isStoredReadingMap, {})
+    todayReadings.value = readJSON(readingsKey(currentDateString.value), isStoredReadingMap, {})
   }
 
   function persistReadings() {
-    writeJSON(readingsKey(getDateString(now.value)), todayReadings.value)
+    writeJSON(readingsKey(currentDateString.value), todayReadings.value)
     syncData()
   }
+
+  watch(currentDateString, () => {
+    loadTodayReadings()
+  })
 
   function getActualMins(schedule: ScheduleSlot[], id: string): number {
     return getActualMinsPure(schedule, todayReadings.value, id)
@@ -35,5 +40,5 @@ export function useReadings(now: Ref<Date>) {
     return isSlotDuePure(slot, todayReadings.value, currentMinutes)
   }
 
-  return { todayReadings, loadTodayReadings, persistReadings, getActualMins, isSlotDue }
+  return { todayReadings, currentDateString, loadTodayReadings, persistReadings, getActualMins, isSlotDue }
 }
