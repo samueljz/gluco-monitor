@@ -210,16 +210,14 @@ onUnmounted(() => {
     :theme-overrides="themeOverrides"
   >
     <div
-      class="max-w-md mx-auto h-screen flex flex-col font-sans transition-colors duration-500 relative overflow-hidden"
-      :class="isDarkMode ? 'bg-slate-950 text-slate-200' : 'bg-slate-50 text-slate-800'"
+      class="max-w-md mx-auto h-screen flex flex-col font-sans transition-colors duration-500 relative overflow-hidden bg-slate-50 text-slate-800 dark:bg-slate-950 dark:text-slate-200"
     >
       <!-- Minimal Header with Theme Toggle -->
       <div class="px-6 pt-10 pb-4 shrink-0 flex items-start justify-between z-20">
         <div>
           <div class="flex items-center gap-2 mb-0.5">
             <h1
-              class="font-bold tracking-widest uppercase text-[10px]"
-              :class="isDarkMode ? 'text-slate-500' : 'text-slate-400'"
+              class="font-bold tracking-widest uppercase text-[10px] text-slate-400 dark:text-slate-500"
             >
               Gluco Monitor (GDM)
             </h1>
@@ -229,8 +227,7 @@ onUnmounted(() => {
             >
               <template v-if="isSyncing">
                 <svg
-                  class="animate-spin h-2.5 w-2.5"
-                  :class="isDarkMode ? 'text-slate-400' : 'text-slate-500'"
+                  class="animate-spin h-2.5 w-2.5 text-slate-500 dark:text-slate-400"
                   xmlns="http://www.w3.org/2000/svg"
                   fill="none"
                   viewBox="0 0 24 24"
@@ -249,7 +246,7 @@ onUnmounted(() => {
                     d="M4 12a8 8 0 018-8V0C5.373 0 0 5.373 0 12h4zm2 5.291A7.962 7.962 0 014 12H0c0 3.042 1.135 5.824 3 7.938l3-2.647z"
                   />
                 </svg>
-                <span :class="isDarkMode ? 'text-slate-400' : 'text-slate-500'">SYNCING</span>
+                <span class="text-slate-500 dark:text-slate-400">SYNCING</span>
               </template>
               <template v-else-if="syncError">
                 <button
@@ -301,13 +298,12 @@ onUnmounted(() => {
                 >
                   <polyline points="20 6 9 17 4 12" />
                 </svg>
-                <span :class="isDarkMode ? 'text-slate-500' : 'text-slate-400'">SYNCED</span>
+                <span class="text-slate-400 dark:text-slate-500">SYNCED</span>
               </template>
             </span>
           </div>
           <p
-            class="text-sm font-semibold"
-            :class="isDarkMode ? 'text-slate-300' : 'text-slate-600'"
+            class="text-sm font-semibold text-slate-600 dark:text-slate-300"
           >
             {{ dateString }}
           </p>
@@ -320,8 +316,7 @@ onUnmounted(() => {
         >
           <button
             aria-label="Menu"
-            class="w-10 h-10 rounded-full flex items-center justify-center transition-colors shadow-sm shrink-0"
-            :class="isDarkMode ? 'bg-slate-800 text-slate-300 hover:bg-slate-700' : 'bg-white text-slate-600 hover:bg-slate-100'"
+            class="w-10 h-10 rounded-full flex items-center justify-center transition-colors shadow-sm shrink-0 bg-white text-slate-600 hover:bg-slate-100 dark:bg-slate-800 dark:text-slate-300 dark:hover:bg-slate-700"
           >
             <svg
               xmlns="http://www.w3.org/2000/svg"
@@ -433,8 +428,7 @@ onUnmounted(() => {
                   <input
                     v-model="editFormTimeString"
                     type="time"
-                    :style="{ colorScheme: isDarkMode ? 'dark' : 'light' }"
-                    class="flex-1 min-w-0 rounded-2xl px-4 py-3.5 text-3xl font-black tabular-nums tracking-tight bg-slate-100 dark:bg-slate-800 text-slate-800 dark:text-white outline-none focus:ring-4 focus:ring-blue-500/30 transition-shadow"
+                    class="flex-1 min-w-0 rounded-2xl px-4 py-3.5 text-3xl font-black tabular-nums tracking-tight bg-slate-100 dark:bg-slate-800 text-slate-800 dark:text-white outline-none focus:ring-4 focus:ring-blue-500/30 transition-shadow scheme-light dark:scheme-dark"
                   >
                   <button
                     type="button"
@@ -490,8 +484,7 @@ onUnmounted(() => {
                   <input
                     v-model="editFormTimeString"
                     type="time"
-                    :style="{ colorScheme: isDarkMode ? 'dark' : 'light' }"
-                    class="flex-1 min-w-0 rounded-2xl px-4 py-3.5 text-3xl font-black tabular-nums tracking-tight bg-slate-100 dark:bg-slate-800 text-slate-800 dark:text-white outline-none focus:ring-4 focus:ring-blue-500/30 transition-shadow"
+                    class="flex-1 min-w-0 rounded-2xl px-4 py-3.5 text-3xl font-black tabular-nums tracking-tight bg-slate-100 dark:bg-slate-800 text-slate-800 dark:text-white outline-none focus:ring-4 focus:ring-blue-500/30 transition-shadow scheme-light dark:scheme-dark"
                   >
                   <button
                     type="button"
