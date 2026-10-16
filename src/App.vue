@@ -541,7 +541,7 @@ onMounted(() => {
           <template #footer>
             <div class="flex items-center gap-3 mt-2 w-full">
               <n-button
-                v-if="!activeSlotData?.requiresReading && activeEditSlotId && todayReadings[activeEditSlotId]"
+                v-if="activeEditSlotId && todayReadings[activeEditSlotId]"
                 type="error"
                 ghost
                 size="large"

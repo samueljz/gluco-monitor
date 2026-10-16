@@ -1,6 +1,6 @@
 import { computed, ref, type Ref } from 'vue'
 import confetti from 'canvas-confetti'
-import type { ScheduleSlot } from '../constants/schedule'
+import { defaultSchedule, type ScheduleSlot } from '../constants/schedule'
 import type { StoredReadingMap } from '../types'
 import { timeStringToMinutes } from '../utils/dueStatus'
 import { applyCascade, validateProposedTime } from '../utils/scheduleCascade'
@@ -30,7 +30,6 @@ export function useEditModal(
   const activeEditSlotId = ref<string | null>(null)
   const editFormTimeMs = ref<number | null>(null)
   const editFormReading = ref<number | null>(null)
-  const editFormSnackTaken = ref(false)
   const editFormSnackNote = ref('')
   const editFormError = ref('')
 
@@ -74,7 +73,6 @@ export function useEditModal(
     if (slot.requiresReading) {
       editFormReading.value = hasReading ? (todayReadings.value[slotId]?.value ?? null) : null
     } else {
-      editFormSnackTaken.value = hasReading
       editFormSnackNote.value = todayReadings.value[slotId]?.note ?? ''
     }
 
@@ -148,6 +146,14 @@ export function useEditModal(
   function uncheckSnack() {
     if (activeEditSlotId.value && todayReadings.value[activeEditSlotId.value]) {
       delete todayReadings.value[activeEditSlotId.value]
+      for (const s of schedule.value) {
+        if (!todayReadings.value[s.id]) {
+          const def = defaultSchedule.find(d => d.id === s.id)
+          if (def) s.time = def.time
+        }
+      }
+      schedule.value = applyCascade(schedule.value, todayReadings.value)
+      saveSchedule()
       persistReadings()
       showEditModal.value = false
       scrollToActive()
@@ -161,7 +167,6 @@ export function useEditModal(
     editFormTimeMs,
     editFormTimeString,
     editFormReading,
-    editFormSnackTaken,
     editFormSnackNote,
     editFormError,
     setEditTimeToNow,
